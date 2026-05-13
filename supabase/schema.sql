@@ -23,7 +23,7 @@ CREATE UNIQUE INDEX idx_seasons_one_active
 -- ------------------------------------------------------------
 CREATE TABLE pokemon (
   id             SERIAL  PRIMARY KEY,
-  dex_number     INTEGER UNIQUE,
+  dex_number     INTEGER,
   name           TEXT    NOT NULL,
   slug           TEXT    NOT NULL UNIQUE,
   type_1         TEXT    NOT NULL,

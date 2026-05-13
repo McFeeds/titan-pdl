@@ -59,9 +59,9 @@ Kangaskhan	10
 Starmie	9
 Pinsir	2
 Tauros	10
-Tauros-Paldea	8
-Tauros-Paldea-Aqua	13
-Tauros-Paldea-Blaze	12
+Tauros-Paldea-Combat-Breed	8
+Tauros-Paldea-Aqua-Breed	13
+Tauros-Paldea-Blaze-Breed	12
 Gyarados	14
 Ditto	5
 Vaporeon	10
@@ -148,7 +148,7 @@ Glaceon	8
 Gliscor	10
 Farigiraf	18
 Mamoswine	13
-Frosslass	5
+Froslass	5
 Rotom-Wash	15
 Rotom-Heat	12
 Excadrill	18

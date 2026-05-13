@@ -1,8 +1,0 @@
-{
-  "permissions": {
-    "allow": [
-      "Bash(Get-Content \"C:\\\\Users\\\\bafen\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-bafen-Documents-Titan-PDL\\\\bfafc43a-afb4-41f4-8251-82311f9b3182\\\\tasks\\\\bs8gmvrf4.output\" -Wait)",
-      "Bash(Select-String -Pattern \"Ready|Error|error|ready|localhost|compiled\")"
-    ]
-  }
-}

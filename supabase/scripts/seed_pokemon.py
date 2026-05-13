@@ -99,15 +99,28 @@ _api_cache: dict[str, dict | None] = {}
 
 
 def fetch_pokemon(slug: str) -> dict | None:
-    """Fetch /pokemon/{slug}; returns None on 404, caches results."""
+    """Fetch /pokemon/{slug}; on 404 falls back to /pokemon-species/{slug} and
+    fetches the default variety (handles multi-form Pokemon like Aegislash)."""
     if slug in _api_cache:
         return _api_cache[slug]
 
     resp = requests.get(f"{POKEAPI_BASE}/pokemon/{slug}", timeout=15)
 
     if resp.status_code == 404:
-        _api_cache[slug] = None
-        return None
+        species_resp = requests.get(f"{POKEAPI_BASE}/pokemon-species/{slug}", timeout=15)
+        if species_resp.status_code == 404:
+            _api_cache[slug] = None
+            return None
+        species_resp.raise_for_status()
+        time.sleep(REQUEST_DELAY)
+
+        varieties = species_resp.json().get("varieties", [])
+        default_variety = next((v for v in varieties if v["is_default"]), varieties[0] if varieties else None)
+        if default_variety is None:
+            _api_cache[slug] = None
+            return None
+
+        resp = requests.get(default_variety["pokemon"]["url"], timeout=15)
 
     resp.raise_for_status()
     time.sleep(REQUEST_DELAY)

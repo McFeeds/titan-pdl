@@ -3,7 +3,11 @@
     "allow": [
       "Bash(Get-Content \"C:\\\\Users\\\\bafen\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-bafen-Documents-Titan-PDL\\\\bfafc43a-afb4-41f4-8251-82311f9b3182\\\\tasks\\\\bs8gmvrf4.output\" -Wait)",
       "Bash(Select-String -Pattern \"Ready|Error|error|ready|localhost|compiled\")",
-      "PowerShell(New-Item -ItemType Directory -Path \"src\\\\types\" -Force)"
+      "PowerShell(New-Item -ItemType Directory -Path \"src\\\\types\" -Force)",
+      "PowerShell(supabase --version 2>&1)",
+      "PowerShell(npm install --save-dev supabase 2>&1)",
+      "PowerShell(npx supabase init 2>&1)",
+      "PowerShell(New-Item -ItemType Directory -Path \"supabase\\\\migrations\" -Force)"
     ]
   }
 }

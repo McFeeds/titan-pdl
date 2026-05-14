@@ -122,18 +122,18 @@ export default function Navbar() {
         ) : team ? (
           <Link
             href="/my-team"
-            className="flex items-center gap-2 bg-white/10 hover:bg-white/15 active:bg-white/20 text-white text-sm font-semibold px-3 py-2 rounded-lg transition-colors shrink-0 max-w-[180px]"
+            className="flex items-center gap-2 bg-white/10 hover:bg-white/15 active:bg-white/20 text-white text-sm font-semibold pl-1 pr-3 py-1 rounded-lg transition-colors shrink-0 max-w-[180px]"
           >
             {team.logo_url ? (
               <Image
                 src={team.logo_url}
                 alt=""
-                width={24}
-                height={24}
-                className="rounded-full shrink-0 object-cover"
+                width={48}
+                height={48}
+                className="rounded-md shrink-0 object-cover"
               />
             ) : (
-              <div className="w-6 h-6 rounded-full bg-indigo-600 shrink-0 flex items-center justify-center text-xs font-bold">
+              <div className="w-12 h-12 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center text-base font-bold">
                 {team.team_name[0].toUpperCase()}
               </div>
             )}

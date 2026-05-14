@@ -4,6 +4,8 @@ import { useActionState, useState } from "react";
 
 const inputCls =
   "w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500";
+const selectCls =
+  "w-full px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 [&>option]:bg-[#0d0d1f]";
 const labelCls = "block text-sm font-medium text-gray-300 mb-1";
 
 type Conference = { id: number; name: string };
@@ -92,7 +94,7 @@ export default function TeamForm({ action, conferences, groups, team }: Props) {
           name="conference_id"
           value={selectedConference}
           onChange={(e) => setSelectedConference(e.target.value)}
-          className={inputCls}
+          className={selectCls}
         >
           <option value="">— None —</option>
           {conferences.map((c) => (
@@ -108,7 +110,7 @@ export default function TeamForm({ action, conferences, groups, team }: Props) {
         <select
           name="group_id"
           defaultValue={team?.group_id?.toString() ?? ""}
-          className={inputCls}
+          className={selectCls}
         >
           <option value="">— None —</option>
           {filteredGroups.map((g) => (

@@ -57,11 +57,12 @@ export default function Navbar() {
         return;
       }
 
-      const [{ data: teamData }, { data: adminData }] = await Promise.all([
+      const [{ data: membership }, { data: adminData }] = await Promise.all([
         supabase
-          .from("teams")
-          .select("team_name, logo_url")
+          .from("team_members")
+          .select("teams(team_name, logo_url)")
           .ilike("discord_id", discordUsername)
+          .limit(1)
           .single(),
         supabase
           .from("admins")
@@ -70,7 +71,8 @@ export default function Navbar() {
           .single(),
       ]);
 
-      setTeam(teamData ?? null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setTeam((membership?.teams as any) ?? null);
       setIsAdmin(!!adminData);
       setLoading(false);
     }
@@ -79,9 +81,15 @@ export default function Navbar() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange(() => {
-      setLoading(true);
-      loadUser();
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN") {
+        setLoading(true);
+        loadUser();
+      } else if (event === "SIGNED_OUT") {
+        setTeam(null);
+        setIsAdmin(false);
+        setLoading(false);
+      }
     });
 
     return () => subscription.unsubscribe();

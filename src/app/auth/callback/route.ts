@@ -6,6 +6,7 @@ export async function GET(request: NextRequest) {
   const code = searchParams.get("code");
 
   if (!code) {
+    console.error("[auth/callback] No code in request");
     return NextResponse.redirect(`${origin}/`);
   }
 
@@ -16,13 +17,20 @@ export async function GET(request: NextRequest) {
   } = await supabase.auth.exchangeCodeForSession(code);
 
   if (error || !user) {
+    console.error("[auth/callback] exchangeCodeForSession failed:", error);
     return NextResponse.redirect(`${origin}/`);
   }
 
-  const discordUsername = user.user_metadata?.user_name as string | undefined;
+  console.log("[auth/callback] user_metadata:", JSON.stringify(user.user_metadata));
+
+  // Discord can put the username in different fields depending on account type
+  const discordUsername =
+    (user.user_metadata?.user_name as string | undefined) ||
+    (user.user_metadata?.preferred_username as string | undefined);
 
   if (!discordUsername) {
-    return NextResponse.redirect(`${origin}/`);
+    console.error("[auth/callback] Could not resolve discord username from metadata");
+    return NextResponse.redirect(`${origin}/team-not-found?username=unknown`);
   }
 
   const { data: team } = await supabase

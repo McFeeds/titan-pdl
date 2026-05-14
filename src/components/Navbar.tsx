@@ -82,10 +82,7 @@ export default function Navbar() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "SIGNED_IN") {
-        setLoading(true);
-        loadUser();
-      } else if (event === "SIGNED_OUT") {
+      if (event === "SIGNED_OUT") {
         setTeam(null);
         setIsAdmin(false);
         setLoading(false);

@@ -1,0 +1,7 @@
+CREATE TABLE admins (
+  discord_id TEXT        NOT NULL PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE admins ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read" ON admins FOR SELECT USING (true);

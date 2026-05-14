@@ -40,17 +40,17 @@ export default function Navbar() {
 
     async function loadUser() {
       const {
-        data: { session },
-      } = await supabase.auth.getSession();
+        data: { user },
+      } = await supabase.auth.getUser();
 
-      if (!session) {
+      if (!user) {
         setLoading(false);
         return;
       }
 
       const discordUsername =
-        (session.user.user_metadata?.user_name as string | undefined) ||
-        (session.user.user_metadata?.full_name as string | undefined);
+        (user.user_metadata?.user_name as string | undefined) ||
+        (user.user_metadata?.full_name as string | undefined);
 
       if (!discordUsername) {
         setLoading(false);

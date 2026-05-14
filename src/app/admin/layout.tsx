@@ -10,12 +10,12 @@ export default async function AdminLayout({
 }) {
   const supabase = await createClient();
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) redirect("/");
+  if (!user) redirect("/");
 
-  const discordUsername = getDiscordUsername(session.user.user_metadata);
+  const discordUsername = getDiscordUsername(user.user_metadata);
   if (!discordUsername) redirect("/");
 
   const { data: admin } = await supabase

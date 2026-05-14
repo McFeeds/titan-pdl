@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { deleteTeam } from "./actions";
+import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 
 export default async function AdminTeamsPage() {
   const supabase = await createClient();
@@ -55,18 +56,12 @@ export default async function AdminTeamsPage() {
                       >
                         Edit
                       </Link>
-                      <form action={deleteTeam}>
-                        <input type="hidden" name="id" value={team.id} />
-                        <button
-                          type="submit"
-                          className="text-red-400 hover:text-red-300 text-xs font-medium"
-                          onClick={(e) => {
-                            if (!confirm(`Delete ${team.team_name}?`)) e.preventDefault();
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </form>
+                      <ConfirmDeleteButton
+                        action={deleteTeam}
+                        id={team.id}
+                        message={`Delete ${team.team_name}?`}
+                        className="text-red-400 hover:text-red-300 text-xs font-medium"
+                      />
                     </div>
                   </td>
                 </tr>

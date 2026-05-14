@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createSeason, setActiveSeason, deleteSeason } from "./actions";
 import SeasonsForm from "./SeasonsForm";
+import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 
 export default async function AdminSeasonsPage() {
   const supabase = await createClient();
@@ -59,18 +60,12 @@ export default async function AdminSeasonsPage() {
                           </button>
                         </form>
                       )}
-                      <form action={deleteSeason}>
-                        <input type="hidden" name="id" value={season.id} />
-                        <button
-                          type="submit"
-                          className="text-xs text-red-400 hover:text-red-300 font-medium"
-                          onClick={(e) => {
-                            if (!confirm(`Delete season "${season.name}"?`)) e.preventDefault();
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </form>
+                      <ConfirmDeleteButton
+                        action={deleteSeason}
+                        id={season.id}
+                        message={`Delete season "${season.name}"?`}
+                        className="text-xs text-red-400 hover:text-red-300 font-medium"
+                      />
                     </div>
                   </td>
                 </tr>

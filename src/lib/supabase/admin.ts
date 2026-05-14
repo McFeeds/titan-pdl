@@ -19,12 +19,12 @@ export function getDiscordUsername(userMetadata: Record<string, unknown>): strin
 export async function requireAdmin(): Promise<string> {
   const supabase = await createClient();
   const {
-    data: { session },
-  } = await supabase.auth.getSession();
+    data: { user },
+  } = await supabase.auth.getUser();
 
-  if (!session) throw new Error("Unauthorized");
+  if (!user) throw new Error("Unauthorized");
 
-  const discordUsername = getDiscordUsername(session.user.user_metadata);
+  const discordUsername = getDiscordUsername(user.user_metadata);
   if (!discordUsername) throw new Error("Unauthorized");
 
   const { data: admin } = await supabase

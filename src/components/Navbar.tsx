@@ -32,12 +32,13 @@ type Team = {
 export default function Navbar() {
   const pathname = usePathname();
   const [team, setTeam] = useState<Team | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const supabase = createClient();
 
-    async function loadTeam() {
+    async function loadUser() {
       const {
         data: { session },
       } = await supabase.auth.getSession();
@@ -56,23 +57,31 @@ export default function Navbar() {
         return;
       }
 
-      const { data } = await supabase
-        .from("teams")
-        .select("team_name, logo_url")
-        .ilike("discord_id", discordUsername)
-        .single();
+      const [{ data: teamData }, { data: adminData }] = await Promise.all([
+        supabase
+          .from("teams")
+          .select("team_name, logo_url")
+          .ilike("discord_id", discordUsername)
+          .single(),
+        supabase
+          .from("admins")
+          .select("discord_id")
+          .ilike("discord_id", discordUsername)
+          .single(),
+      ]);
 
-      setTeam(data ?? null);
+      setTeam(teamData ?? null);
+      setIsAdmin(!!adminData);
       setLoading(false);
     }
 
-    loadTeam();
+    loadUser();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(() => {
       setLoading(true);
-      loadTeam();
+      loadUser();
     });
 
     return () => subscription.unsubscribe();
@@ -117,37 +126,52 @@ export default function Navbar() {
           })}
         </div>
 
-        {loading ? (
-          <div className="w-36 h-9 rounded-lg bg-white/5 animate-pulse shrink-0" />
-        ) : team ? (
-          <Link
-            href="/my-team"
-            className="flex items-center gap-2 bg-white/10 hover:bg-white/15 active:bg-white/20 text-white text-sm font-semibold pl-1 pr-3 py-1 rounded-lg transition-colors shrink-0 max-w-[180px]"
-          >
-            {team.logo_url ? (
-              <Image
-                src={team.logo_url}
-                alt=""
-                width={48}
-                height={48}
-                className="rounded-md shrink-0 object-cover"
-              />
-            ) : (
-              <div className="w-12 h-12 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center text-base font-bold">
-                {team.team_name[0].toUpperCase()}
-              </div>
-            )}
-            <span className="truncate">{team.team_name}</span>
-          </Link>
-        ) : (
-          <button
-            onClick={handleLogin}
-            className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors shrink-0"
-          >
-            {DISCORD_SVG}
-            Login with Discord
-          </button>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {isAdmin && (
+            <Link
+              href="/admin"
+              className={`px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                pathname.startsWith("/admin")
+                  ? "text-white bg-white/10"
+                  : "text-gray-400 hover:text-white hover:bg-white/5"
+              }`}
+            >
+              Admin
+            </Link>
+          )}
+
+          {loading ? (
+            <div className="w-36 h-9 rounded-lg bg-white/5 animate-pulse" />
+          ) : team ? (
+            <Link
+              href="/my-team"
+              className="flex items-center gap-2 bg-white/10 hover:bg-white/15 active:bg-white/20 text-white text-sm font-semibold pl-1 pr-3 py-1 rounded-lg transition-colors max-w-[180px]"
+            >
+              {team.logo_url ? (
+                <Image
+                  src={team.logo_url}
+                  alt=""
+                  width={48}
+                  height={48}
+                  className="rounded-md shrink-0 object-cover"
+                />
+              ) : (
+                <div className="w-12 h-12 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center text-base font-bold">
+                  {team.team_name[0].toUpperCase()}
+                </div>
+              )}
+              <span className="truncate">{team.team_name}</span>
+            </Link>
+          ) : (
+            <button
+              onClick={handleLogin}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+            >
+              {DISCORD_SVG}
+              Login with Discord
+            </button>
+          )}
+        </div>
       </div>
     </nav>
   );

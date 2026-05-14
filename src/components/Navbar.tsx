@@ -47,9 +47,9 @@ export default function Navbar() {
         return;
       }
 
-      const discordUsername = session.user.user_metadata?.user_name as
-        | string
-        | undefined;
+      const discordUsername =
+        (session.user.user_metadata?.user_name as string | undefined) ||
+        (session.user.user_metadata?.full_name as string | undefined);
 
       if (!discordUsername) {
         setLoading(false);
@@ -59,7 +59,7 @@ export default function Navbar() {
       const { data } = await supabase
         .from("teams")
         .select("team_name, logo_url")
-        .eq("discord_id", discordUsername)
+        .ilike("discord_id", discordUsername)
         .single();
 
       setTeam(data ?? null);

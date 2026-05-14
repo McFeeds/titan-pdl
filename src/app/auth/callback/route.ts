@@ -23,10 +23,10 @@ export async function GET(request: NextRequest) {
 
   console.log("[auth/callback] user_metadata:", JSON.stringify(user.user_metadata));
 
-  // Discord can put the username in different fields depending on account type
+  // Discord returns the username in full_name (e.g. "mcfeeds")
   const discordUsername =
     (user.user_metadata?.user_name as string | undefined) ||
-    (user.user_metadata?.preferred_username as string | undefined);
+    (user.user_metadata?.full_name as string | undefined);
 
   if (!discordUsername) {
     console.error("[auth/callback] Could not resolve discord username from metadata");
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
   const { data: team } = await supabase
     .from("teams")
     .select("id")
-    .eq("discord_id", discordUsername)
+    .ilike("discord_id", discordUsername)
     .single();
 
   if (team) {

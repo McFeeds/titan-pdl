@@ -13,7 +13,6 @@ type Group = { id: number; name: string; conference_id: number };
 type Team = {
   id: number;
   team_name: string;
-  showdown_name: string;
   logo_url: string | null;
   conference_id: number | null;
   group_id: number | null;
@@ -53,16 +52,6 @@ export default function TeamForm({ action, conferences, groups, team }: Props) {
           name="team_name"
           defaultValue={team?.team_name ?? ""}
           placeholder="The Wild Krookodiles"
-          className={inputCls}
-        />
-      </div>
-
-      <div>
-        <label className={labelCls}>Showdown Name</label>
-        <input
-          name="showdown_name"
-          defaultValue={team?.showdown_name ?? ""}
-          placeholder="McFeeds"
           className={inputCls}
         />
       </div>

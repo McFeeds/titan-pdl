@@ -17,7 +17,7 @@ export default async function EditTeamPage({
       supabase.from("teams").select("*").eq("id", Number(id)).single(),
       supabase.from("conferences").select("id, name").order("name"),
       supabase.from("groups").select("id, name, conference_id").order("name"),
-      supabase.from("team_members").select("discord_id").eq("team_id", Number(id)).order("discord_id"),
+      supabase.from("team_members").select("discord_id, showdown_name").eq("team_id", Number(id)).order("discord_id"),
     ]);
 
   if (!team) notFound();

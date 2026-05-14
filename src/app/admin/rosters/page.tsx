@@ -26,7 +26,8 @@ export default async function AdminRostersPage() {
         conferences={conferences ?? []}
         teams={teams ?? []}
         pokemon={pokemon ?? []}
-        roster={roster ?? []}
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        roster={(roster ?? []) as any}
       />
     </div>
   );

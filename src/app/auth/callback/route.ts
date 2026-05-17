@@ -33,13 +33,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/team-not-found?username=unknown`);
   }
 
-  const { data: team } = await supabase
-    .from("teams")
-    .select("id")
+  const { data: membership } = await supabase
+    .from("team_members")
+    .select("team_id")
     .ilike("discord_id", discordUsername)
+    .limit(1)
     .single();
 
-  if (team) {
+  if (membership) {
     return NextResponse.redirect(`${origin}/my-team`);
   }
 

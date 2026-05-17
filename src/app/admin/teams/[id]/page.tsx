@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import TeamForm from "../TeamForm";
+import TeamMembersManager from "../TeamMembersManager";
 import { updateTeam } from "../actions";
 
 export default async function EditTeamPage({
@@ -11,11 +12,12 @@ export default async function EditTeamPage({
   const { id } = await params;
   const supabase = await createClient();
 
-  const [{ data: team }, { data: conferences }, { data: groups }] =
+  const [{ data: team }, { data: conferences }, { data: groups }, { data: members }] =
     await Promise.all([
       supabase.from("teams").select("*").eq("id", Number(id)).single(),
       supabase.from("conferences").select("id, name").order("name"),
       supabase.from("groups").select("id, name, conference_id").order("name"),
+      supabase.from("team_members").select("discord_id, showdown_name").eq("team_id", Number(id)).order("discord_id"),
     ]);
 
   if (!team) notFound();
@@ -29,6 +31,7 @@ export default async function EditTeamPage({
         groups={groups ?? []}
         team={team}
       />
+      <TeamMembersManager teamId={Number(id)} members={members ?? []} />
     </div>
   );
 }

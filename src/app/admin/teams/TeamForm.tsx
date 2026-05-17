@@ -12,9 +12,7 @@ type Conference = { id: number; name: string };
 type Group = { id: number; name: string; conference_id: number };
 type Team = {
   id: number;
-  discord_id: string;
   team_name: string;
-  showdown_name: string;
   logo_url: string | null;
   conference_id: number | null;
   group_id: number | null;
@@ -22,7 +20,7 @@ type Team = {
 };
 
 type Props = {
-  action: (prevState: { error?: string } | null, formData: FormData) => Promise<{ error?: string } | null>;
+  action: (_prevState: { error?: string } | null, formData: FormData) => Promise<{ error?: string } | null>;
   conferences: Conference[];
   groups: Group[];
   team?: Team;
@@ -49,31 +47,11 @@ export default function TeamForm({ action, conferences, groups, team }: Props) {
       )}
 
       <div>
-        <label className={labelCls}>Discord Username</label>
-        <input
-          name="discord_id"
-          defaultValue={team?.discord_id ?? ""}
-          placeholder="mcfeeds"
-          className={inputCls}
-        />
-      </div>
-
-      <div>
         <label className={labelCls}>Team Name</label>
         <input
           name="team_name"
           defaultValue={team?.team_name ?? ""}
           placeholder="The Wild Krookodiles"
-          className={inputCls}
-        />
-      </div>
-
-      <div>
-        <label className={labelCls}>Showdown Name</label>
-        <input
-          name="showdown_name"
-          defaultValue={team?.showdown_name ?? ""}
-          placeholder="McFeeds"
           className={inputCls}
         />
       </div>

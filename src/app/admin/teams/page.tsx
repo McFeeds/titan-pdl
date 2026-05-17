@@ -7,7 +7,7 @@ export default async function AdminTeamsPage() {
   const supabase = await createClient();
   const { data: teams } = await supabase
     .from("teams")
-    .select("id, discord_id, team_name, showdown_name, conference_id, group_id, conferences(name), groups(name)")
+    .select("id, team_name, conferences(name), groups(name), team_members(discord_id, showdown_name)")
     .order("team_name");
 
   return (
@@ -30,8 +30,7 @@ export default async function AdminTeamsPage() {
             <thead>
               <tr className="text-left text-gray-400 text-xs uppercase tracking-wide">
                 <th className="pb-3 pr-6">Team</th>
-                <th className="pb-3 pr-6">Discord</th>
-                <th className="pb-3 pr-6">Showdown</th>
+                <th className="pb-3 pr-6">Members</th>
                 <th className="pb-3 pr-6">Conference / Group</th>
                 <th className="pb-3" />
               </tr>
@@ -40,8 +39,11 @@ export default async function AdminTeamsPage() {
               {teams.map((team) => (
                 <tr key={team.id} className="border-t border-white/5">
                   <td className="py-3 pr-6 text-white font-medium">{team.team_name}</td>
-                  <td className="py-3 pr-6 text-gray-300">{team.discord_id}</td>
-                  <td className="py-3 pr-6 text-gray-300">{team.showdown_name}</td>
+                  <td className="py-3 pr-6 text-gray-300 text-xs">
+                    {team.team_members?.map((m) =>
+                      m.showdown_name ? `${m.discord_id} (${m.showdown_name})` : m.discord_id
+                    ).join(", ") || "—"}
+                  </td>
                   <td className="py-3 pr-6 text-gray-300">
                     {/* @ts-expect-error supabase join typing */}
                     {team.conferences?.name ?? "—"}

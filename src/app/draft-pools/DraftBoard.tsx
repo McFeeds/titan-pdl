@@ -14,6 +14,29 @@ const TYPE_COLORS: Record<string, string> = {
 
 const POKEMON_TYPES = Object.keys(TYPE_COLORS).map((t) => t.toLowerCase());
 
+// Diagonal split gradient per conference, matching the paired game versions
+const CONFERENCE_THEMES: Record<string, { gradient: string; shadow: string }> = {
+  hoenn: {
+    // Ruby (deep red) → Sapphire (deep blue), top-left to bottom-right
+    gradient: "linear-gradient(135deg, #7A1010 50%, #10107A 50%)",
+    shadow: "0 10px 25px rgba(70, 10, 70, 0.4)",
+  },
+  sinnoh: {
+    // Diamond (icy blue) → Pearl (soft rose), top-left to bottom-right
+    gradient: "linear-gradient(135deg, #2A74A8 50%, #A85880 50%)",
+    shadow: "0 10px 25px rgba(80, 100, 150, 0.4)",
+  },
+};
+
+function getConferenceTheme(name: string) {
+  return (
+    CONFERENCE_THEMES[name.toLowerCase()] ?? {
+      gradient: "#4f46e5",
+      shadow: "0 10px 15px rgba(99, 102, 241, 0.2)",
+    }
+  );
+}
+
 const STAT_ALIASES: Record<string, string> = {
   hp: "hp", health: "hp",
   attack: "atk", atk: "atk",
@@ -245,19 +268,32 @@ export default function DraftBoard({
         {/* Conference toggle */}
         <div className="my-6">
           <div className="bg-white/5 rounded-2xl p-1.5 flex w-full border border-white/10">
-            {conferences.map((conf) => (
-              <button
-                key={conf.id}
-                onClick={() => setSelectedConferenceId(conf.id)}
-                className={`flex-1 py-4 rounded-xl font-bold text-xl tracking-wide transition-all duration-200 ${
-                  selectedConferenceId === conf.id
-                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/20"
-                    : "text-gray-400 hover:text-white hover:bg-white/5"
-                }`}
-              >
-                {conf.name}
-              </button>
-            ))}
+            {conferences.map((conf) => {
+              const isSelected = selectedConferenceId === conf.id;
+              const theme = getConferenceTheme(conf.name);
+              return (
+                <button
+                  key={conf.id}
+                  onClick={() => setSelectedConferenceId(conf.id)}
+                  className={`flex-1 py-4 rounded-xl font-bold text-xl tracking-wide transition-[color,box-shadow] duration-200 ${
+                    isSelected
+                      ? "text-white"
+                      : "text-gray-400 hover:text-white hover:bg-white/5"
+                  }`}
+                  style={
+                    isSelected
+                      ? {
+                          background: theme.gradient,
+                          boxShadow: theme.shadow,
+                          textShadow: "0 1px 4px rgba(0,0,0,0.6)",
+                        }
+                      : undefined
+                  }
+                >
+                  {conf.name}
+                </button>
+              );
+            })}
           </div>
         </div>
 

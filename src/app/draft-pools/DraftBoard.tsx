@@ -379,12 +379,14 @@ function PokemonCard({
         {pokemon.dex_number ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemon.dex_number}.png`}
+            src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemon.dex_number}.png`}
             alt={pokemon.name}
             width={72}
             height={72}
             className="w-full h-auto"
-            style={{ imageRendering: "pixelated" }}
+            onError={(e) => {
+              e.currentTarget.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemon.dex_number}.png`;
+            }}
           />
         ) : (
           <div className="w-full aspect-square flex items-center justify-center text-gray-600 text-2xl bg-white/5">

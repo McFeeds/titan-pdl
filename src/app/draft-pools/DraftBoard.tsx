@@ -23,7 +23,7 @@ const CONFERENCE_THEMES: Record<string, { gradient: string; shadow: string }> = 
   },
   sinnoh: {
     // Diamond (icy blue) → Pearl (soft rose), top-left to bottom-right
-    gradient: "linear-gradient(135deg, #2A74A8 50%, #A85880 50%)",
+    gradient: "linear-gradient(135deg, #d3d8f1 50%, #f9e7de 50%)",
     shadow: "0 10px 25px rgba(80, 100, 150, 0.4)",
   },
 };
@@ -102,7 +102,32 @@ function buildFilter(
     }
   }
 
-  // Move filter: "with the move X", "with move X", "can learn X", etc.
+  // Symbol forms: "speed > 100", "hp >= 50", "attack < 80", "def <= 90"
+  // Order is (stat op number) so capture groups are reversed vs. word patterns
+  const symbolPatterns: [RegExp, "gt" | "lt" | "gte" | "lte"][] = [
+    [/([\w\s.]+?)\s*>=\s*(\d+)(?=\s|$)/gi, "gte"],
+    [/([\w\s.]+?)\s*<=\s*(\d+)(?=\s|$)/gi, "lte"],
+    [/([\w\s.]+?)\s*>\s*(\d+)(?=\s|$)/gi, "gt"],
+    [/([\w\s.]+?)\s*<\s*(\d+)(?=\s|$)/gi, "lt"],
+  ];
+  for (const [regex, op] of symbolPatterns) {
+    let match;
+    while ((match = regex.exec(q)) !== null) {
+      const stat = findStat(match[1].trim());
+      const value = parseInt(match[2]);
+      if (!stat) continue;
+      const s = stat, v = value;
+      filters.push((p) => {
+        const val = p[s] as number;
+        if (op === "gt") return val > v;
+        if (op === "lt") return val < v;
+        if (op === "gte") return val >= v;
+        return val <= v;
+      });
+    }
+  }
+
+  // Move filter: "with the move X", "learns X", etc. — or bare move name in query
   const movePattern =
     /(?:with the move|with move|can learn|learns?|knows?)\s+([a-z][a-z\s'-]+?)(?=\s+(?:and|that|which|or|,)|\s*$)/gi;
   let moveMatch;
@@ -114,6 +139,20 @@ function buildFilter(
           m.name.toLowerCase().includes(moveName) ||
           moveName.includes(m.name.toLowerCase())
       )
+    );
+  }
+
+  // Also detect known move names directly in the query (no keyword required)
+  const allMoves = new Set<string>();
+  allPokemon.forEach((p) => p.moves.forEach((m) => allMoves.add(m.name.toLowerCase())));
+  const matchedMoves = [...allMoves]
+    .sort((a, b) => b.length - a.length)
+    .filter((m) =>
+      new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(q)
+    );
+  if (matchedMoves.length > 0) {
+    filters.push((p) =>
+      matchedMoves.some((m) => p.moves.some((pm) => pm.name.toLowerCase() === m))
     );
   }
 
@@ -297,11 +336,11 @@ export default function DraftBoard({
           </div>
         </div>
 
-        {/* Search */}
-        <div className="mb-6">
+        {/* Search — sticky below the fixed nav */}
+        <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
           <input
             type="text"
-            placeholder='Search... e.g. "Water types with Intimidate", "Move Fake Out less than 15 points", "Over 100 speed"'
+            placeholder='Search... e.g. "Water types with Intimidate", "Learns Fake Out less than 15 points", "Over 100 speed"'
             value={rawQuery}
             onChange={(e) => setRawQuery(e.target.value)}
             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"

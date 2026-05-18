@@ -194,9 +194,22 @@ def build_placeholder_row(display_name: str, point_value: int) -> dict:
     }
 
 
-def get_learnable_slugs(api_data: dict) -> set[str]:
-    """Return all move slugs this Pokemon can learn in any game."""
-    return {m["move"]["name"] for m in api_data["moves"]}
+def get_learnable_slugs(api_data: dict) -> tuple[set[str], bool]:
+    """Return (move_slugs, used_base_form_fallback).
+
+    Mega evolutions and other alternate forms often have an empty moves list in
+    PokeAPI — in that case, fall back to the base species' default form learnset.
+    """
+    raw_moves = api_data.get("moves", [])
+    used_fallback = False
+    if not raw_moves:
+        species_name = api_data.get("species", {}).get("name")
+        if species_name:
+            base_data = fetch_pokemon(species_name)
+            if base_data:
+                raw_moves = base_data.get("moves", [])
+                used_fallback = True
+    return {m["move"]["name"] for m in raw_moves}, used_fallback
 
 
 # ---------------------------------------------------------------------------
@@ -285,10 +298,12 @@ def main() -> None:
         api_data = fetch_pokemon(slug)
 
         if api_data is not None:
-            print(f"  OK          {display_name}")
             row = build_pokemon_row_from_api(api_data, display_name, point_value)
-            learnable = get_learnable_slugs(api_data) & move_slugs
+            learnable, used_fallback = get_learnable_slugs(api_data)
+            learnable &= move_slugs
             learnable_map[slug] = learnable
+            label = "FALLBACK    " if used_fallback else "OK          "
+            print(f"  {label}{display_name}" + (" (moves from base form)" if used_fallback else ""))
         else:
             print(f"  PLACEHOLDER {display_name}  (not in PokeAPI — stats need manual entry)")
             row = build_placeholder_row(display_name, point_value)

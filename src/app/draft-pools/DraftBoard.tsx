@@ -96,25 +96,16 @@ function buildFilter(
   const q = query.toLowerCase();
   const filters: ((p: PokemonWithMoves) => boolean)[] = [];
 
-  // Type filter
-  const matchedTypes = POKEMON_TYPES.filter((t) =>
-    new RegExp(`\\b${t}\\b`, "i").test(q)
-  );
-  if (matchedTypes.length > 0) {
-    filters.push((p) =>
-      matchedTypes.some(
-        (t) => p.type_1.toLowerCase() === t || p.type_2?.toLowerCase() === t
-      )
-    );
-  }
-
   // Resistance filter: "resists X", "immune to X", "weak to X"
+  // Run this first so we can exclude these types from the plain type filter below
+  const resistClaimedTypes = new Set<string>();
   const resistPattern = /(?:(resists?|immune to|not affected by|weak(?:ness)?(?:\s+to)?)\s+)([\w]+)/gi;
   let resistMatch;
   while ((resistMatch = resistPattern.exec(q)) !== null) {
     const keyword = resistMatch[1].toLowerCase();
     const typeName = resistMatch[2].toLowerCase();
     if (!POKEMON_TYPES.includes(typeName)) continue;
+    resistClaimedTypes.add(typeName);
     const t = typeName;
     if (keyword.startsWith("immune") || keyword.includes("not affected")) {
       filters.push((p) => getEffectiveness(t, p.type_1, p.type_2) === 0);
@@ -123,6 +114,18 @@ function buildFilter(
     } else {
       filters.push((p) => getEffectiveness(t, p.type_1, p.type_2) < 1);
     }
+  }
+
+  // Type filter — skip types already consumed by the resistance filter
+  const matchedTypes = POKEMON_TYPES.filter(
+    (t) => !resistClaimedTypes.has(t) && new RegExp(`\\b${t}\\b`, "i").test(q)
+  );
+  if (matchedTypes.length > 0) {
+    filters.push((p) =>
+      matchedTypes.some(
+        (t) => p.type_1.toLowerCase() === t || p.type_2?.toLowerCase() === t
+      )
+    );
   }
 
   // Stat filters

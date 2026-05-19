@@ -53,7 +53,7 @@ const CONFERENCE_THEMES: Record<string, { gradient: string; shadow: string }> = 
   },
   sinnoh: {
     // Diamond (icy blue) → Pearl (soft rose), top-left to bottom-right
-    gradient: "linear-gradient(135deg, #d3d8f1 50%, #f9e7de 50%)",
+    gradient: "linear-gradient(135deg, #d3d8f1 50%, #fdf0ee 50%)",
     shadow: "0 10px 25px rgba(80, 100, 150, 0.4)",
   },
 };

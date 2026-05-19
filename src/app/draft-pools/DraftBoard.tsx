@@ -14,6 +14,36 @@ const TYPE_COLORS: Record<string, string> = {
 
 const POKEMON_TYPES = Object.keys(TYPE_COLORS).map((t) => t.toLowerCase());
 
+// Effectiveness of attacking type (row) vs defending type (column): 0, 0.5, 1, or 2
+const TYPE_CHART: Record<string, Record<string, number>> = {
+  normal:   { rock: 0.5, ghost: 0, steel: 0.5 },
+  fire:     { fire: 0.5, water: 0.5, grass: 2, ice: 2, bug: 2, rock: 0.5, dragon: 0.5, steel: 2 },
+  water:    { fire: 2, water: 0.5, grass: 0.5, ground: 2, rock: 2, dragon: 0.5 },
+  electric: { water: 2, electric: 0.5, grass: 0.5, ground: 0, flying: 2, dragon: 0.5 },
+  grass:    { fire: 0.5, water: 2, grass: 0.5, poison: 0.5, ground: 2, flying: 0.5, bug: 0.5, rock: 2, dragon: 0.5, steel: 0.5 },
+  ice:      { water: 0.5, grass: 2, ice: 0.5, ground: 2, flying: 2, dragon: 2, steel: 0.5 },
+  fighting: { normal: 2, ice: 2, poison: 0.5, flying: 0.5, psychic: 0.5, bug: 0.5, rock: 2, ghost: 0, dark: 2, steel: 2, fairy: 0.5 },
+  poison:   { grass: 2, poison: 0.5, ground: 0.5, rock: 0.5, ghost: 0.5, steel: 0, fairy: 2 },
+  ground:   { fire: 2, electric: 2, grass: 0.5, poison: 2, flying: 0, bug: 0.5, rock: 2, steel: 2 },
+  flying:   { electric: 0.5, grass: 2, fighting: 2, bug: 2, rock: 0.5, steel: 0.5 },
+  psychic:  { fighting: 2, poison: 2, psychic: 0.5, dark: 0, steel: 0.5 },
+  bug:      { fire: 0.5, grass: 2, fighting: 0.5, flying: 0.5, psychic: 2, ghost: 0.5, dark: 2, steel: 0.5, fairy: 0.5 },
+  rock:     { fire: 2, ice: 2, fighting: 0.5, ground: 0.5, flying: 2, bug: 2, steel: 0.5 },
+  ghost:    { normal: 0, psychic: 2, ghost: 2, dark: 0.5 },
+  dragon:   { dragon: 2, steel: 0.5, fairy: 0 },
+  dark:     { fighting: 0.5, psychic: 2, ghost: 2, dark: 0.5, fairy: 0.5 },
+  steel:    { fire: 0.5, water: 0.5, electric: 0.5, ice: 2, rock: 2, steel: 0.5, fairy: 2 },
+  fairy:    { fighting: 2, poison: 0.5, bug: 0.5, dragon: 2, dark: 2, steel: 0.5 },
+};
+
+function getEffectiveness(attackingType: string, defendingType1: string, defendingType2?: string | null): number {
+  const atk = attackingType.toLowerCase();
+  const row = TYPE_CHART[atk] ?? {};
+  const e1 = row[defendingType1.toLowerCase()] ?? 1;
+  const e2 = defendingType2 ? (row[defendingType2.toLowerCase()] ?? 1) : 1;
+  return e1 * e2;
+}
+
 // Diagonal split gradient per conference, matching the paired game versions
 const CONFERENCE_THEMES: Record<string, { gradient: string; shadow: string }> = {
   hoenn: {
@@ -23,7 +53,7 @@ const CONFERENCE_THEMES: Record<string, { gradient: string; shadow: string }> = 
   },
   sinnoh: {
     // Diamond (icy blue) → Pearl (soft rose), top-left to bottom-right
-    gradient: "linear-gradient(135deg, #2A74A8 50%, #A85880 50%)",
+    gradient: "linear-gradient(135deg, #d3d8f1 50%, #fdf0ee 50%)",
     shadow: "0 10px 25px rgba(80, 100, 150, 0.4)",
   },
 };
@@ -66,9 +96,29 @@ function buildFilter(
   const q = query.toLowerCase();
   const filters: ((p: PokemonWithMoves) => boolean)[] = [];
 
-  // Type filter
-  const matchedTypes = POKEMON_TYPES.filter((t) =>
-    new RegExp(`\\b${t}\\b`, "i").test(q)
+  // Resistance filter: "resists X", "immune to X", "weak to X"
+  // Run this first so we can exclude these types from the plain type filter below
+  const resistClaimedTypes = new Set<string>();
+  const resistPattern = /(?:(resists?|immune to|not affected by|weak(?:ness)?(?:\s+to)?)\s+)([\w]+)/gi;
+  let resistMatch;
+  while ((resistMatch = resistPattern.exec(q)) !== null) {
+    const keyword = resistMatch[1].toLowerCase();
+    const typeName = resistMatch[2].toLowerCase();
+    if (!POKEMON_TYPES.includes(typeName)) continue;
+    resistClaimedTypes.add(typeName);
+    const t = typeName;
+    if (keyword.startsWith("immune") || keyword.includes("not affected")) {
+      filters.push((p) => getEffectiveness(t, p.type_1, p.type_2) === 0);
+    } else if (keyword.startsWith("weak")) {
+      filters.push((p) => getEffectiveness(t, p.type_1, p.type_2) > 1);
+    } else {
+      filters.push((p) => getEffectiveness(t, p.type_1, p.type_2) < 1);
+    }
+  }
+
+  // Type filter — skip types already consumed by the resistance filter
+  const matchedTypes = POKEMON_TYPES.filter(
+    (t) => !resistClaimedTypes.has(t) && new RegExp(`\\b${t}\\b`, "i").test(q)
   );
   if (matchedTypes.length > 0) {
     filters.push((p) =>
@@ -102,7 +152,32 @@ function buildFilter(
     }
   }
 
-  // Move filter: "with the move X", "with move X", "can learn X", etc.
+  // Symbol forms: "speed > 100", "hp >= 50", "attack < 80", "def <= 90"
+  // Order is (stat op number) so capture groups are reversed vs. word patterns
+  const symbolPatterns: [RegExp, "gt" | "lt" | "gte" | "lte"][] = [
+    [/([\w\s.]+?)\s*>=\s*(\d+)(?=\s|$)/gi, "gte"],
+    [/([\w\s.]+?)\s*<=\s*(\d+)(?=\s|$)/gi, "lte"],
+    [/([\w\s.]+?)\s*>\s*(\d+)(?=\s|$)/gi, "gt"],
+    [/([\w\s.]+?)\s*<\s*(\d+)(?=\s|$)/gi, "lt"],
+  ];
+  for (const [regex, op] of symbolPatterns) {
+    let match;
+    while ((match = regex.exec(q)) !== null) {
+      const stat = findStat(match[1].trim());
+      const value = parseInt(match[2]);
+      if (!stat) continue;
+      const s = stat, v = value;
+      filters.push((p) => {
+        const val = p[s] as number;
+        if (op === "gt") return val > v;
+        if (op === "lt") return val < v;
+        if (op === "gte") return val >= v;
+        return val <= v;
+      });
+    }
+  }
+
+  // Move filter: "with the move X", "learns X", etc. — or bare move name in query
   const movePattern =
     /(?:with the move|with move|can learn|learns?|knows?)\s+([a-z][a-z\s'-]+?)(?=\s+(?:and|that|which|or|,)|\s*$)/gi;
   let moveMatch;
@@ -114,6 +189,20 @@ function buildFilter(
           m.name.toLowerCase().includes(moveName) ||
           moveName.includes(m.name.toLowerCase())
       )
+    );
+  }
+
+  // Also detect known move names directly in the query (no keyword required)
+  const allMoves = new Set<string>();
+  allPokemon.forEach((p) => p.moves.forEach((m) => allMoves.add(m.name.toLowerCase())));
+  const matchedMoves = [...allMoves]
+    .sort((a, b) => b.length - a.length)
+    .filter((m) =>
+      new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(q)
+    );
+  if (matchedMoves.length > 0) {
+    filters.push((p) =>
+      matchedMoves.some((m) => p.moves.some((pm) => pm.name.toLowerCase() === m))
     );
   }
 
@@ -297,11 +386,11 @@ export default function DraftBoard({
           </div>
         </div>
 
-        {/* Search */}
-        <div className="mb-6">
+        {/* Search — sticky below the fixed nav */}
+        <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
           <input
             type="text"
-            placeholder='Search... e.g. "Water types with Intimidate", "Move Fake Out less than 15 points", "Over 100 speed"'
+            placeholder='Search... e.g. "Water types with Intimidate", "Learns Fake Out less than 15 points", "Over 100 speed"'
             value={rawQuery}
             onChange={(e) => setRawQuery(e.target.value)}
             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"

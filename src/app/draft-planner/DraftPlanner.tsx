@@ -239,8 +239,8 @@ export default function DraftPlanner({ pokemon }: Props) {
                       )}
                     </div>
 
-                    {/* Info */}
-                    <div className="shrink-0 flex flex-col items-center gap-1">
+                    {/* Info — fixed height so every card's image fills identical space */}
+                    <div className="shrink-0 h-[86px] flex flex-col items-center justify-start gap-1">
                       <span className="text-xs font-bold text-white text-center leading-tight">
                         {slot.name}
                       </span>
@@ -248,18 +248,17 @@ export default function DraftPlanner({ pokemon }: Props) {
                         <TypeBadge type={slot.type_1} />
                         {slot.type_2 && <TypeBadge type={slot.type_2} />}
                       </div>
-                      {/* Always 3 lines so every card's info block is the same height */}
-                      <div className="text-center flex flex-col gap-0.5 w-full">
-                        <span className="text-[10px] text-gray-400 truncate">
-                          {slot.ability_1 ? formatAbility(slot.ability_1) : ""}
+                      <div className="text-center flex flex-col w-full" style={{ gap: 2 }}>
+                        <span className="text-[10px] leading-[14px] text-gray-400 truncate block">
+                          {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
                         </span>
-                        <span className="text-[10px] text-gray-400 truncate">
-                          {slot.ability_2 ? formatAbility(slot.ability_2) : ""}
+                        <span className="text-[10px] leading-[14px] text-gray-400 truncate block">
+                          {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
                         </span>
-                        <span className="text-[10px] text-indigo-400 truncate">
+                        <span className="text-[10px] leading-[14px] text-indigo-400 truncate block">
                           {slot.hidden_ability
                             ? <>{formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span></>
-                            : ""}
+                            : " "}
                         </span>
                       </div>
                     </div>

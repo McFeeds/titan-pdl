@@ -248,18 +248,19 @@ export default function DraftPlanner({ pokemon }: Props) {
                         <TypeBadge type={slot.type_1} />
                         {slot.type_2 && <TypeBadge type={slot.type_2} />}
                       </div>
+                      {/* Always 3 lines so every card's info block is the same height */}
                       <div className="text-center flex flex-col gap-0.5 w-full">
-                        {slot.ability_1 && (
-                          <span className="text-[10px] text-gray-400 truncate">{formatAbility(slot.ability_1)}</span>
-                        )}
-                        {slot.ability_2 && (
-                          <span className="text-[10px] text-gray-400 truncate">{formatAbility(slot.ability_2)}</span>
-                        )}
-                        {slot.hidden_ability && (
-                          <span className="text-[10px] text-indigo-400 truncate">
-                            {formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span>
-                          </span>
-                        )}
+                        <span className="text-[10px] text-gray-400 truncate">
+                          {slot.ability_1 ? formatAbility(slot.ability_1) : ""}
+                        </span>
+                        <span className="text-[10px] text-gray-400 truncate">
+                          {slot.ability_2 ? formatAbility(slot.ability_2) : ""}
+                        </span>
+                        <span className="text-[10px] text-indigo-400 truncate">
+                          {slot.hidden_ability
+                            ? <>{formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span></>
+                            : ""}
+                        </span>
                       </div>
                     </div>
                   </>

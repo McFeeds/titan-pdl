@@ -14,14 +14,34 @@ const TYPE_COLORS: Record<string, string> = {
 const SLOT_COUNT = 12;
 const DEFAULT_BUDGET = 120;
 
-interface Props {
-  pokemon: PokemonWithMoves[];
-}
-
 function typeColor(type: string): string {
-  // Normalize to title-case to match TYPE_COLORS keys regardless of DB casing
   const key = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
   return TYPE_COLORS[key] ?? "#6b7280";
+}
+
+function titleCase(str: string): string {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+}
+
+function formatAbility(name: string): string {
+  return name.replace(/-/g, " ");
+}
+
+function spriteUrl(dexNumber: number, large = false): string {
+  return large
+    ? `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexNumber}.png`
+    : `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${dexNumber}.png`;
+}
+
+function PokeballIcon({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 100 100" className={className} fill="none" stroke="currentColor" strokeWidth="5">
+      <circle cx="50" cy="50" r="45" />
+      <line x1="5" y1="50" x2="95" y2="50" />
+      <circle cx="50" cy="50" r="13" />
+      <circle cx="50" cy="50" r="6" fill="currentColor" stroke="none" />
+    </svg>
+  );
 }
 
 function TypeBadge({ type }: { type: string }) {
@@ -31,15 +51,13 @@ function TypeBadge({ type }: { type: string }) {
       className="text-xs px-2 py-0.5 rounded font-semibold"
       style={{ backgroundColor: color + "33", color }}
     >
-      {type}
+      {titleCase(type)}
     </span>
   );
 }
 
-function spriteUrl(dexNumber: number, large = false): string {
-  return large
-    ? `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${dexNumber}.png`
-    : `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${dexNumber}.png`;
+interface Props {
+  pokemon: PokemonWithMoves[];
 }
 
 export default function DraftPlanner({ pokemon }: Props) {
@@ -68,24 +86,25 @@ export default function DraftPlanner({ pokemon }: Props) {
       <div className="max-w-[1400px] mx-auto px-6">
         <h1 className="text-2xl font-bold text-white mt-6 mb-6">Draft Planner</h1>
 
-        <div className="flex gap-6 items-start">
-          {/* ── Left panel: 12 selection slots ── */}
+        {/* items-stretch so the right grid matches left panel height */}
+        <div className="flex gap-6 items-stretch">
+
+          {/* ── Left panel: 12 selection slots + budget ── */}
           <div className="w-80 shrink-0 flex flex-col gap-2">
             {slots.map((slot, i) => (
               <div key={i} className="flex items-center gap-2">
-                {/* Small sprite */}
-                <div className="w-10 h-10 shrink-0 flex items-center justify-center">
+                {/* Small sprite with pokeball fallback */}
+                <div className="w-10 h-10 shrink-0 relative flex items-center justify-center">
+                  <PokeballIcon className="w-7 h-7 text-gray-700 absolute" />
                   {slot?.dex_number ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={spriteUrl(slot.dex_number)}
                       alt={slot.name}
-                      className="w-10 h-10 object-contain"
+                      className="w-10 h-10 object-contain relative z-10"
                       onError={(e) => { e.currentTarget.style.display = "none"; }}
                     />
-                  ) : (
-                    <div className="w-8 h-8 rounded-full bg-white/10 border border-white/10" />
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Selector */}
@@ -115,7 +134,6 @@ export default function DraftPlanner({ pokemon }: Props) {
 
             {/* Budget / remaining */}
             <div className="mt-3 border-t border-white/10 pt-3">
-              {/* Collapsible budget editor */}
               {showBudgetEdit && (
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-sm text-gray-500">Budget</span>
@@ -139,13 +157,9 @@ export default function DraftPlanner({ pokemon }: Props) {
                     Remaining: {pointsRemaining}
                   </span>
                   {overBudget && (
-                    <span className="text-xs text-red-400">
-                      Over by {Math.abs(pointsRemaining)}
-                    </span>
+                    <span className="text-xs text-red-400">Over by {Math.abs(pointsRemaining)}</span>
                   )}
                 </div>
-
-                {/* Subtle budget toggle */}
                 <button
                   onClick={() => setShowBudgetEdit((v) => !v)}
                   title="Configure budget"
@@ -159,59 +173,61 @@ export default function DraftPlanner({ pokemon }: Props) {
             </div>
           </div>
 
-          {/* ── Right panel: 6×2 display grid ── */}
-          <div className="flex-1 grid grid-cols-6 gap-3">
+          {/* ── Right panel: 6×2 fixed grid, height matches left panel ── */}
+          <div className="flex-1 grid grid-cols-6 grid-rows-2 gap-3 h-full">
             {slots.map((slot, i) => (
               <div
                 key={i}
-                className="bg-white/5 border border-white/10 rounded-xl flex flex-col items-center p-3 gap-2 min-h-[220px]"
+                className="bg-white/5 border border-white/10 rounded-xl flex flex-col overflow-hidden p-3 gap-1.5"
               >
                 {slot ? (
                   <>
-                    {/* Large artwork */}
-                    {slot.dex_number ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img
-                        src={spriteUrl(slot.dex_number, true)}
-                        alt={slot.name}
-                        className="w-full aspect-square object-contain"
-                        onError={(e) => {
-                          e.currentTarget.src = spriteUrl(slot.dex_number!);
-                        }}
-                      />
-                    ) : (
-                      <div className="w-full aspect-square bg-white/5 rounded-lg" />
-                    )}
-
-                    {/* Name */}
-                    <span className="text-xs font-bold text-white text-center leading-tight">
-                      {slot.name}
-                    </span>
-
-                    {/* Types */}
-                    <div className="flex flex-wrap gap-1 justify-center">
-                      <TypeBadge type={slot.type_1} />
-                      {slot.type_2 && <TypeBadge type={slot.type_2} />}
+                    {/* Artwork fills available vertical space */}
+                    <div className="flex-1 min-h-0 relative flex items-center justify-center">
+                      <PokeballIcon className="w-12 h-12 text-gray-800 absolute" />
+                      {slot.dex_number ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={spriteUrl(slot.dex_number, true)}
+                          alt={slot.name}
+                          className="h-full w-full object-contain relative z-10"
+                          onError={(e) => {
+                            e.currentTarget.src = spriteUrl(slot.dex_number!);
+                            e.currentTarget.onerror = () => { e.currentTarget.style.display = "none"; };
+                          }}
+                        />
+                      ) : null}
                     </div>
 
-                    {/* Abilities */}
-                    <div className="text-center flex flex-col gap-0.5 w-full">
-                      {slot.ability_1 && (
-                        <span className="text-[10px] text-gray-400 truncate">{slot.ability_1}</span>
-                      )}
-                      {slot.ability_2 && (
-                        <span className="text-[10px] text-gray-400 truncate">{slot.ability_2}</span>
-                      )}
-                      {slot.hidden_ability && (
-                        <span className="text-[10px] text-indigo-400 truncate">
-                          {slot.hidden_ability} <span className="text-gray-600">(H)</span>
-                        </span>
-                      )}
+                    {/* Fixed-height info section */}
+                    <div className="shrink-0 flex flex-col items-center gap-1">
+                      <span className="text-xs font-bold text-white text-center leading-tight">
+                        {slot.name}
+                      </span>
+                      <div className="flex flex-wrap gap-1 justify-center">
+                        <TypeBadge type={slot.type_1} />
+                        {slot.type_2 && <TypeBadge type={slot.type_2} />}
+                      </div>
+                      <div className="text-center flex flex-col gap-0.5 w-full">
+                        {slot.ability_1 && (
+                          <span className="text-[10px] text-gray-400 truncate">{formatAbility(slot.ability_1)}</span>
+                        )}
+                        {slot.ability_2 && (
+                          <span className="text-[10px] text-gray-400 truncate">{formatAbility(slot.ability_2)}</span>
+                        )}
+                        {slot.hidden_ability && (
+                          <span className="text-[10px] text-indigo-400 truncate">
+                            {formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </>
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-gray-700 text-xs">
-                    {i + 1}
+                  /* Empty slot: pokeball + slot number */
+                  <div className="flex-1 flex flex-col items-center justify-center gap-2 opacity-20">
+                    <PokeballIcon className="w-10 h-10 text-gray-400" />
+                    <span className="text-xs text-gray-400">{i + 1}</span>
                   </div>
                 )}
               </div>

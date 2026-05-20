@@ -1,7 +1,7 @@
 "use client";
 
 import { PokemonWithMoves } from "@/types/database";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const TYPE_COLORS: Record<string, string> = {
   Normal: "#A8A878", Fire: "#F08030", Water: "#6890F0", Electric: "#F8D030",
@@ -13,6 +13,34 @@ const TYPE_COLORS: Record<string, string> = {
 
 const SLOT_COUNT = 12;
 const DEFAULT_BUDGET = 120;
+const STORAGE_KEY = "titan-pdl-draft-teams";
+
+// ── Types ──────────────────────────────────────────────────────────────────
+
+interface SavedTeam {
+  id: string;
+  name: string;
+  slotIds: (number | null)[];
+  budget: number;
+  savedAt: string;
+}
+
+// ── Storage helpers ────────────────────────────────────────────────────────
+
+function readTeams(): SavedTeam[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as SavedTeam[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeTeams(teams: SavedTeam[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(teams));
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 function typeColor(type: string): string {
   const key = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
@@ -33,7 +61,8 @@ function spriteUrl(dexNumber: number, large = false): string {
     : `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${dexNumber}.png`;
 }
 
-// outline = empty slot, filled = pokemon selected but no image available
+// ── Sub-components ─────────────────────────────────────────────────────────
+
 function PokeballIcon({ className, filled = false }: { className?: string; filled?: boolean }) {
   if (filled) {
     return (
@@ -70,19 +99,28 @@ function TypeBadge({ type }: { type: string }) {
   );
 }
 
+// ── Main component ─────────────────────────────────────────────────────────
+
 interface Props {
   pokemon: PokemonWithMoves[];
 }
 
 export default function DraftPlanner({ pokemon }: Props) {
-  const [slots, setSlots] = useState<(PokemonWithMoves | null)[]>(
-    Array(SLOT_COUNT).fill(null)
-  );
+  const [teamName, setTeamName] = useState("My New Team");
+  const [currentTeamId, setCurrentTeamId] = useState<string | null>(null);
+  const [slots, setSlots] = useState<(PokemonWithMoves | null)[]>(Array(SLOT_COUNT).fill(null));
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
-  // Track broken images per slot index, cleared when the slot selection changes
   const [brokenIcons, setBrokenIcons] = useState<Set<number>>(new Set());
   const [brokenArtwork, setBrokenArtwork] = useState<Set<number>>(new Set());
+  const [showLoadModal, setShowLoadModal] = useState(false);
+  const [savedTeams, setSavedTeams] = useState<SavedTeam[]>([]);
+  const [saveFlash, setSaveFlash] = useState(false);
+
+  // Load saved teams list on mount
+  useEffect(() => {
+    setSavedTeams(readTeams());
+  }, []);
 
   const usedIds = new Set(slots.flatMap((p) => (p ? [p.id] : [])));
   const pointsSpent = slots.reduce((sum, p) => sum + (p?.point_value ?? 0), 0);
@@ -91,11 +129,7 @@ export default function DraftPlanner({ pokemon }: Props) {
 
   function setSlot(index: number, id: string) {
     const found = id ? (pokemon.find((p) => p.id === Number(id)) ?? null) : null;
-    setSlots((prev) => {
-      const next = [...prev];
-      next[index] = found;
-      return next;
-    });
+    setSlots((prev) => { const next = [...prev]; next[index] = found; return next; });
     setBrokenIcons((prev) => { const n = new Set(prev); n.delete(index); return n; });
     setBrokenArtwork((prev) => { const n = new Set(prev); n.delete(index); return n; });
   }
@@ -108,24 +142,123 @@ export default function DraftPlanner({ pokemon }: Props) {
     setBrokenArtwork((prev) => new Set([...prev, index]));
   }
 
+  // ── Team persistence ──────────────────────────────────────────────────
+
+  function handleSave() {
+    const existing = readTeams();
+    const slotIds = slots.map((s) => s?.id ?? null);
+    let updated: SavedTeam[];
+
+    if (currentTeamId) {
+      updated = existing.map((t) =>
+        t.id === currentTeamId
+          ? { ...t, name: teamName, slotIds, budget, savedAt: new Date().toISOString() }
+          : t
+      );
+    } else {
+      const newTeam: SavedTeam = {
+        id: Date.now().toString(),
+        name: teamName,
+        slotIds,
+        budget,
+        savedAt: new Date().toISOString(),
+      };
+      updated = [...existing, newTeam];
+      setCurrentTeamId(newTeam.id);
+    }
+
+    writeTeams(updated);
+    setSavedTeams(updated);
+    setSaveFlash(true);
+    setTimeout(() => setSaveFlash(false), 1200);
+  }
+
+  function handleLoad(team: SavedTeam) {
+    const newSlots = team.slotIds.map((id) =>
+      id ? (pokemon.find((p) => p.id === id) ?? null) : null
+    );
+    setSlots(newSlots);
+    setTeamName(team.name);
+    setBudget(team.budget ?? DEFAULT_BUDGET);
+    setCurrentTeamId(team.id);
+    setBrokenIcons(new Set());
+    setBrokenArtwork(new Set());
+    setShowLoadModal(false);
+  }
+
+  function handleDelete(id: string) {
+    const updated = readTeams().filter((t) => t.id !== id);
+    writeTeams(updated);
+    setSavedTeams(updated);
+    if (currentTeamId === id) setCurrentTeamId(null);
+  }
+
+  function openLoadModal() {
+    setSavedTeams(readTeams());
+    setShowLoadModal(true);
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────
+
   return (
     <main className="pt-20 pb-16 min-h-screen">
       <div className="max-w-[1400px] mx-auto px-6">
-        <h1 className="text-2xl font-bold text-white mt-6 mb-6">Draft Planner</h1>
+
+        {/* Header: editable team name + action buttons */}
+        <div className="flex items-center gap-3 mt-6 mb-6">
+          <input
+            type="text"
+            value={teamName}
+            onChange={(e) => setTeamName(e.target.value)}
+            className="text-2xl font-bold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-white/40 focus:outline-none min-w-0 flex-1 max-w-xs"
+          />
+
+          {/* Save */}
+          <button
+            onClick={handleSave}
+            title="Save team"
+            className={`p-1.5 rounded transition-colors ${saveFlash ? "text-emerald-400" : "text-gray-500 hover:text-white"}`}
+          >
+            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M3 4a1 1 0 011-1h9.586a1 1 0 01.707.293l2.414 2.414A1 1 0 0117 6.414V16a1 1 0 01-1 1H4a1 1 0 01-1-1V4zm9 1v3H6V5H4v11h12V6.414L13.586 5H12zM6 11h8v4H6v-4z" />
+            </svg>
+          </button>
+
+          {/* Load */}
+          <button
+            onClick={openLoadModal}
+            title="Load team"
+            className="p-1.5 rounded text-gray-500 hover:text-white transition-colors"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M2 6a2 2 0 012-2h5l2 2h5a2 2 0 012 2v6a2 2 0 01-2 2H4a2 2 0 01-2-2V6z" />
+            </svg>
+          </button>
+
+          {/* Delete (only shown if a team is currently loaded) */}
+          {currentTeamId && (
+            <button
+              onClick={() => handleDelete(currentTeamId)}
+              title="Delete this team"
+              className="p-1.5 rounded text-gray-500 hover:text-red-400 transition-colors"
+            >
+              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </button>
+          )}
+        </div>
 
         <div className="flex gap-6 items-stretch">
 
-          {/* ── Left panel: 12 selection slots + budget ── */}
+          {/* ── Left panel ── */}
           <div className="w-80 shrink-0 flex flex-col gap-2">
             {slots.map((slot, i) => (
               <div key={i} className="flex items-center gap-2">
-                {/* Small sprite — never overlaid, always conditional */}
                 <div className="w-10 h-10 shrink-0 flex items-center justify-center">
                   {!slot ? (
-                    // Empty: dim outline pokeball
                     <PokeballIcon className="w-7 h-7 text-gray-700" />
                   ) : slot.dex_number && !brokenIcons.has(i) ? (
-                    // Pokemon with (hopefully) working sprite
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={spriteUrl(slot.dex_number)}
@@ -134,12 +267,10 @@ export default function DraftPlanner({ pokemon }: Props) {
                       onError={() => markIconBroken(i)}
                     />
                   ) : (
-                    // Pokemon selected but no sprite — red/white pokeball
                     <PokeballIcon className="w-7 h-7" filled />
                   )}
                 </div>
 
-                {/* Selector */}
                 <select
                   value={slot?.id ?? ""}
                   onChange={(e) => setSlot(i, e.target.value)}
@@ -157,7 +288,6 @@ export default function DraftPlanner({ pokemon }: Props) {
                   ))}
                 </select>
 
-                {/* Point value */}
                 <span className="text-sm font-mono w-8 text-right shrink-0 text-gray-300">
                   {slot ? slot.point_value : <span className="text-gray-600">—</span>}
                 </span>
@@ -179,7 +309,6 @@ export default function DraftPlanner({ pokemon }: Props) {
                   />
                 </div>
               )}
-
               <div className="flex items-center justify-between">
                 <div className="flex flex-col gap-0.5">
                   <span className="text-base text-gray-400">
@@ -205,7 +334,7 @@ export default function DraftPlanner({ pokemon }: Props) {
             </div>
           </div>
 
-          {/* ── Right panel: 6×2 grid with explicit fixed row heights ── */}
+          {/* ── Right panel: 6×2 grid ── */}
           <div
             className="flex-1 grid grid-cols-6 gap-3"
             style={{ gridTemplateRows: "320px 320px" }}
@@ -217,7 +346,6 @@ export default function DraftPlanner({ pokemon }: Props) {
               >
                 {slot ? (
                   <>
-                    {/* Artwork — never overlaid, always conditional */}
                     <div className="flex-1 min-h-0 flex items-center justify-center">
                       {slot.dex_number && !brokenArtwork.has(i) ? (
                         // eslint-disable-next-line @next/next/no-img-element
@@ -226,7 +354,6 @@ export default function DraftPlanner({ pokemon }: Props) {
                           alt={slot.name}
                           className="h-full w-full object-contain"
                           onError={(e) => {
-                            // Cascade: official artwork → small sprite → pokeball
                             if (e.currentTarget.src.includes("official-artwork")) {
                               e.currentTarget.src = spriteUrl(slot.dex_number!);
                             } else {
@@ -239,7 +366,6 @@ export default function DraftPlanner({ pokemon }: Props) {
                       )}
                     </div>
 
-                    {/* Info — fixed height so every card's image fills identical space */}
                     <div className="shrink-0 h-[86px] flex flex-col items-center justify-start gap-1">
                       <span className="text-xs font-bold text-white text-center leading-tight">
                         {slot.name}
@@ -250,15 +376,15 @@ export default function DraftPlanner({ pokemon }: Props) {
                       </div>
                       <div className="text-center flex flex-col w-full" style={{ gap: 2 }}>
                         <span className="text-[10px] leading-[14px] text-gray-400 truncate block">
-                          {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
+                          {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
                         </span>
                         <span className="text-[10px] leading-[14px] text-gray-400 truncate block">
-                          {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
+                          {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
                         </span>
                         <span className="text-[10px] leading-[14px] text-indigo-400 truncate block">
                           {slot.hidden_ability
                             ? <>{formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span></>
-                            : " "}
+                            : " "}
                         </span>
                       </div>
                     </div>
@@ -274,6 +400,62 @@ export default function DraftPlanner({ pokemon }: Props) {
           </div>
         </div>
       </div>
+
+      {/* ── Load modal ── */}
+      {showLoadModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          onClick={() => setShowLoadModal(false)}
+        >
+          <div
+            className="bg-[#12122a] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-white">Load Team</h2>
+              <button
+                onClick={() => setShowLoadModal(false)}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            {savedTeams.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-8">No saved teams yet.</p>
+            ) : (
+              <ul className="flex flex-col gap-2 max-h-80 overflow-y-auto">
+                {savedTeams.map((team) => (
+                  <li
+                    key={team.id}
+                    className="flex items-center gap-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl px-4 py-3 cursor-pointer transition-colors group"
+                    onClick={() => handleLoad(team)}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-white truncate">{team.name}</p>
+                      <p className="text-xs text-gray-500">
+                        {team.slotIds.filter(Boolean).length} Pokémon ·{" "}
+                        {new Date(team.savedAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(team.id); }}
+                      className="text-gray-600 hover:text-red-400 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                      title="Delete"
+                    >
+                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                      </svg>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
     </main>
   );
 }

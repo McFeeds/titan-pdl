@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/client";
 const navLinks = [
   { href: "/", label: "Home" },
   { href: "/draft-pools", label: "Draft Pools" },
+  { href: "/draft-planner", label: "Draft Planner" },
   { href: "/standings", label: "Standings" },
   { href: "/league-rules", label: "League Rules" },
   { href: "/hall-of-fame", label: "Hall of Fame" },

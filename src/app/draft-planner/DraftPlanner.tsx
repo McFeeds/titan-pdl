@@ -116,6 +116,7 @@ export default function DraftPlanner({ pokemon }: Props) {
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [savedTeams, setSavedTeams] = useState<SavedTeam[]>([]);
   const [saveFlash, setSaveFlash] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Load saved teams list on mount
   useEffect(() => {
@@ -237,15 +238,33 @@ export default function DraftPlanner({ pokemon }: Props) {
 
           {/* Delete (only shown if a team is currently loaded) */}
           {currentTeamId && (
-            <button
-              onClick={() => handleDelete(currentTeamId)}
-              title="Delete this team"
-              className="p-1.5 rounded text-gray-500 hover:text-red-400 transition-colors"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-                <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-            </button>
+            confirmDeleteId === currentTeamId ? (
+              <span className="flex items-center gap-1 text-sm">
+                <span className="text-gray-400">Delete?</span>
+                <button
+                  onClick={() => { handleDelete(currentTeamId); setConfirmDeleteId(null); }}
+                  className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/40 transition-colors font-medium"
+                >
+                  Yes
+                </button>
+                <button
+                  onClick={() => setConfirmDeleteId(null)}
+                  className="px-2 py-0.5 rounded bg-white/5 text-gray-400 hover:bg-white/10 transition-colors font-medium"
+                >
+                  No
+                </button>
+              </span>
+            ) : (
+              <button
+                onClick={() => setConfirmDeleteId(currentTeamId)}
+                title="Delete this team"
+                className="p-1.5 rounded text-gray-500 hover:text-red-400 transition-colors"
+              >
+                <svg className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </button>
+            )
           )}
         </div>
 
@@ -440,15 +459,32 @@ export default function DraftPlanner({ pokemon }: Props) {
                         {new Date(team.savedAt).toLocaleDateString()}
                       </p>
                     </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(team.id); }}
-                      className="text-gray-600 hover:text-red-400 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                      title="Delete"
-                    >
-                      <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-                      </svg>
-                    </button>
+                    {confirmDeleteId === team.id ? (
+                      <span className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={() => { handleDelete(team.id); setConfirmDeleteId(null); }}
+                          className="px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/40 transition-colors text-xs font-medium"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="px-2 py-0.5 rounded bg-white/5 text-gray-400 hover:bg-white/10 transition-colors text-xs font-medium"
+                        >
+                          No
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(team.id); }}
+                        className="text-gray-600 hover:text-red-400 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                        title="Delete"
+                      >
+                        <svg className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

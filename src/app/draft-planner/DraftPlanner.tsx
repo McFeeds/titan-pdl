@@ -33,12 +33,26 @@ function spriteUrl(dexNumber: number, large = false): string {
     : `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${dexNumber}.png`;
 }
 
-function PokeballIcon({ className }: { className?: string }) {
+// outline = empty slot, filled = pokemon selected but no image available
+function PokeballIcon({ className, filled = false }: { className?: string; filled?: boolean }) {
+  if (filled) {
+    return (
+      <svg viewBox="0 0 100 100" className={className}>
+        <path d="M 5 50 A 45 45 0 0 1 95 50 Z" fill="#EF4444" />
+        <path d="M 5 50 A 45 45 0 0 0 95 50 Z" fill="white" />
+        <circle cx="50" cy="50" r="45" fill="none" stroke="#6b7280" strokeWidth="4" />
+        <line x1="5" y1="50" x2="36" y2="50" stroke="#6b7280" strokeWidth="4" />
+        <line x1="64" y1="50" x2="95" y2="50" stroke="#6b7280" strokeWidth="4" />
+        <circle cx="50" cy="50" r="14" fill="white" stroke="#6b7280" strokeWidth="4" />
+        <circle cx="50" cy="50" r="6" fill="#374151" />
+      </svg>
+    );
+  }
   return (
     <svg viewBox="0 0 100 100" className={className} fill="none" stroke="currentColor" strokeWidth="5">
       <circle cx="50" cy="50" r="45" />
       <line x1="5" y1="50" x2="95" y2="50" />
-      <circle cx="50" cy="50" r="13" />
+      <circle cx="50" cy="50" r="14" />
       <circle cx="50" cy="50" r="6" fill="currentColor" stroke="none" />
     </svg>
   );
@@ -66,6 +80,9 @@ export default function DraftPlanner({ pokemon }: Props) {
   );
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
+  // Track broken images per slot index, cleared when the slot selection changes
+  const [brokenIcons, setBrokenIcons] = useState<Set<number>>(new Set());
+  const [brokenArtwork, setBrokenArtwork] = useState<Set<number>>(new Set());
 
   const usedIds = new Set(slots.flatMap((p) => (p ? [p.id] : [])));
   const pointsSpent = slots.reduce((sum, p) => sum + (p?.point_value ?? 0), 0);
@@ -79,6 +96,16 @@ export default function DraftPlanner({ pokemon }: Props) {
       next[index] = found;
       return next;
     });
+    setBrokenIcons((prev) => { const n = new Set(prev); n.delete(index); return n; });
+    setBrokenArtwork((prev) => { const n = new Set(prev); n.delete(index); return n; });
+  }
+
+  function markIconBroken(index: number) {
+    setBrokenIcons((prev) => new Set([...prev, index]));
+  }
+
+  function markArtworkBroken(index: number) {
+    setBrokenArtwork((prev) => new Set([...prev, index]));
   }
 
   return (
@@ -86,25 +113,30 @@ export default function DraftPlanner({ pokemon }: Props) {
       <div className="max-w-[1400px] mx-auto px-6">
         <h1 className="text-2xl font-bold text-white mt-6 mb-6">Draft Planner</h1>
 
-        {/* items-stretch so the right grid matches left panel height */}
         <div className="flex gap-6 items-stretch">
 
           {/* ── Left panel: 12 selection slots + budget ── */}
           <div className="w-80 shrink-0 flex flex-col gap-2">
             {slots.map((slot, i) => (
               <div key={i} className="flex items-center gap-2">
-                {/* Small sprite with pokeball fallback */}
-                <div className="w-10 h-10 shrink-0 relative flex items-center justify-center">
-                  <PokeballIcon className="w-7 h-7 text-gray-700 absolute" />
-                  {slot?.dex_number ? (
+                {/* Small sprite — never overlaid, always conditional */}
+                <div className="w-10 h-10 shrink-0 flex items-center justify-center">
+                  {!slot ? (
+                    // Empty: dim outline pokeball
+                    <PokeballIcon className="w-7 h-7 text-gray-700" />
+                  ) : slot.dex_number && !brokenIcons.has(i) ? (
+                    // Pokemon with (hopefully) working sprite
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
                       src={spriteUrl(slot.dex_number)}
                       alt={slot.name}
-                      className="w-10 h-10 object-contain relative z-10"
-                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      className="w-10 h-10 object-contain"
+                      onError={() => markIconBroken(i)}
                     />
-                  ) : null}
+                  ) : (
+                    // Pokemon selected but no sprite — red/white pokeball
+                    <PokeballIcon className="w-7 h-7" filled />
+                  )}
                 </div>
 
                 {/* Selector */}
@@ -173,8 +205,11 @@ export default function DraftPlanner({ pokemon }: Props) {
             </div>
           </div>
 
-          {/* ── Right panel: 6×2 fixed grid, height matches left panel ── */}
-          <div className="flex-1 grid grid-cols-6 grid-rows-2 gap-3 h-full">
+          {/* ── Right panel: 6×2 grid with explicit fixed row heights ── */}
+          <div
+            className="flex-1 grid grid-cols-6 gap-3"
+            style={{ gridTemplateRows: "320px 320px" }}
+          >
             {slots.map((slot, i) => (
               <div
                 key={i}
@@ -182,24 +217,29 @@ export default function DraftPlanner({ pokemon }: Props) {
               >
                 {slot ? (
                   <>
-                    {/* Artwork fills available vertical space */}
-                    <div className="flex-1 min-h-0 relative flex items-center justify-center">
-                      <PokeballIcon className="w-12 h-12 text-gray-800 absolute" />
-                      {slot.dex_number ? (
+                    {/* Artwork — never overlaid, always conditional */}
+                    <div className="flex-1 min-h-0 flex items-center justify-center">
+                      {slot.dex_number && !brokenArtwork.has(i) ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
                           src={spriteUrl(slot.dex_number, true)}
                           alt={slot.name}
-                          className="h-full w-full object-contain relative z-10"
+                          className="h-full w-full object-contain"
                           onError={(e) => {
-                            e.currentTarget.src = spriteUrl(slot.dex_number!);
-                            e.currentTarget.onerror = () => { e.currentTarget.style.display = "none"; };
+                            // Cascade: official artwork → small sprite → pokeball
+                            if (e.currentTarget.src.includes("official-artwork")) {
+                              e.currentTarget.src = spriteUrl(slot.dex_number!);
+                            } else {
+                              markArtworkBroken(i);
+                            }
                           }}
                         />
-                      ) : null}
+                      ) : (
+                        <PokeballIcon className="w-20 h-20" filled />
+                      )}
                     </div>
 
-                    {/* Fixed-height info section */}
+                    {/* Info */}
                     <div className="shrink-0 flex flex-col items-center gap-1">
                       <span className="text-xs font-bold text-white text-center leading-tight">
                         {slot.name}
@@ -224,9 +264,8 @@ export default function DraftPlanner({ pokemon }: Props) {
                     </div>
                   </>
                 ) : (
-                  /* Empty slot: pokeball + slot number */
                   <div className="flex-1 flex flex-col items-center justify-center gap-2 opacity-20">
-                    <PokeballIcon className="w-10 h-10 text-gray-400" />
+                    <PokeballIcon className="w-12 h-12 text-gray-400" />
                     <span className="text-xs text-gray-400">{i + 1}</span>
                   </div>
                 )}

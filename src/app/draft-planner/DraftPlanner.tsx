@@ -381,7 +381,6 @@ export default function DraftPlanner({ pokemon }: Props) {
   const [slots, setSlots] = useState<(PokemonWithMoves | null)[]>(Array(SLOT_COUNT).fill(null));
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
-  const [brokenIcons, setBrokenIcons] = useState<Set<number>>(new Set());
   const [brokenArtwork, setBrokenArtwork] = useState<Set<number>>(new Set());
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [savedTeams, setSavedTeams] = useState<SavedTeam[]>([]);
@@ -409,7 +408,6 @@ export default function DraftPlanner({ pokemon }: Props) {
   function setSlot(index: number, id: string) {
     const found = id ? (pokemon.find((p) => p.id === Number(id)) ?? null) : null;
     setSlots((prev) => { const n = [...prev]; n[index] = found; return n; });
-    setBrokenIcons((prev) => { const n = new Set(prev); n.delete(index); return n; });
     setBrokenArtwork((prev) => { const n = new Set(prev); n.delete(index); return n; });
   }
 
@@ -433,7 +431,7 @@ export default function DraftPlanner({ pokemon }: Props) {
   function handleLoad(team: SavedTeam) {
     setSlots(team.slotIds.map((id) => (id ? (pokemon.find((p) => p.id === id) ?? null) : null)));
     setTeamName(team.name); setBudget(team.budget ?? DEFAULT_BUDGET);
-    setCurrentTeamId(team.id); setBrokenIcons(new Set());
+    setCurrentTeamId(team.id);
     setShowLoadModal(false);
   }
 
@@ -500,12 +498,8 @@ export default function DraftPlanner({ pokemon }: Props) {
                 <div className="w-8 h-8 shrink-0 flex items-center justify-center">
                   {!slot ? (
                     <PokeballIcon className="w-6 h-6 text-gray-700" />
-                  ) : slot.dex_number && !brokenIcons.has(i) ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={spriteUrl(slot.dex_number)} alt={slot.name} className="w-8 h-8 object-contain"
-                      onError={() => setBrokenIcons((p) => new Set([...p, i]))} />
                   ) : (
-                    <PokeballIcon className="w-6 h-6" filled />
+                    <SpriteOrBall dexNumber={slot.dex_number} name={slot.name} className="w-8 h-8" />
                   )}
                 </div>
                 <select value={slot?.id ?? ""} onChange={(e) => setSlot(i, e.target.value)}

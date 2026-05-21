@@ -242,6 +242,7 @@ function StatsView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
   }
 
   const sorted = [...selected].sort((a, b) => (statVal(b, sort) - statVal(a, sort)) * dir);
+  const emptyCount = slots.length - selected.length;
 
   return (
     <div className="rounded-xl border border-white/10 overflow-hidden">
@@ -279,9 +280,17 @@ function StatsView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
               ))}
             </tr>
           ))}
-          {selected.length === 0 && (
-            <tr><td colSpan={9} className="text-center py-6 text-gray-600 text-xs">No Pokémon selected</td></tr>
-          )}
+          {Array.from({ length: emptyCount }).map((_, i) => (
+            <tr key={`empty-${i}`} className={`border-b border-white/5 ${(sorted.length + i) % 2 === 0 ? "" : "bg-white/[0.02]"}`}>
+              <td className="pl-1.5 py-0.5">
+                <PokeballIcon className="w-5 h-5 text-gray-800" />
+              </td>
+              <td className="px-1 py-0.5 text-[11px] text-gray-700">—</td>
+              {STAT_COLS.map(({ key }) => (
+                <td key={key} className="px-0.5 py-0.5 text-center text-[11px] text-gray-800 w-8">—</td>
+              ))}
+            </tr>
+          ))}
         </tbody>
         {selected.length > 0 && (
           <tfoot>
@@ -334,7 +343,7 @@ function MovesView({
             <select
               value={moveId ?? ""}
               onChange={(e) => setMove(i, e.target.value)}
-              className="flex-1 min-w-0 bg-[#12122a] border border-white/10 rounded px-1 py-0.5 text-[11px] text-white focus:outline-none focus:border-indigo-500 transition-colors"
+              className="w-36 shrink-0 bg-[#12122a] border border-white/10 rounded px-1 py-0.5 text-[11px] text-white focus:outline-none focus:border-indigo-500 transition-colors"
             >
               <option value="">— None —</option>
               {allMoves.map((m) => (

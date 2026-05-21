@@ -37,6 +37,7 @@ function writeTeams(t: SavedTeam[]) { localStorage.setItem(STORAGE_KEY, JSON.str
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function titleCase(s: string) { return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); }
+function formatAbility(s: string) { return s.replace(/-/g, " "); }
 function spriteUrl(n: number, large = false) {
   return large
     ? `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${n}.png`
@@ -559,11 +560,20 @@ export default function DraftPlanner({ pokemon }: Props) {
                           )}
                         </div>
                         <div className="shrink-0 flex flex-col items-center gap-0.5">
-                          <span className="text-[10px] font-bold text-white text-center leading-tight truncate w-full text-center">{slot.name}</span>
+                          <span className="text-[10px] font-bold text-white text-center leading-tight truncate w-full">{slot.name}</span>
                           <div className="flex flex-wrap gap-0.5 justify-center">
                             <TypeBadge type={slot.type_1} small />
                             {slot.type_2 && <TypeBadge type={slot.type_2} small />}
                           </div>
+                          <span className="text-[9px] leading-[13px] text-gray-400 truncate w-full text-center">
+                            {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
+                          </span>
+                          <span className="text-[9px] leading-[13px] text-gray-400 truncate w-full text-center">
+                            {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
+                          </span>
+                          <span className="text-[9px] leading-[13px] text-indigo-400 truncate w-full text-center">
+                            {slot.hidden_ability ? <>{formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span></> : " "}
+                          </span>
                         </div>
                       </>
                     ) : (

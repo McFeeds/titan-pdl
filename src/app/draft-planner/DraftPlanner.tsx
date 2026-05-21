@@ -444,8 +444,10 @@ export default function DraftPlanner({ pokemon }: Props) {
     <main className="h-screen pt-20 overflow-hidden flex flex-col bg-[#0a0a1a]">
       <div className="flex-1 w-full px-3 py-3 flex flex-col min-h-0">
 
-        {/* Header */}
-        <div className="flex items-center gap-3 mb-3 shrink-0">
+        {/* Header — spacer matches left col width so team name aligns with center column */}
+        <div className="flex items-center mb-3 shrink-0 gap-4">
+          <div className="w-80 shrink-0" />
+          <div className="flex items-center gap-1.5 flex-1">
           <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)}
             className="text-xl font-bold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-white/40 focus:outline-none min-w-0 flex-1 max-w-xs" />
 
@@ -481,6 +483,7 @@ export default function DraftPlanner({ pokemon }: Props) {
               </button>
             )
           )}
+          </div>
         </div>
 
         {/* 3-column layout — fills remaining viewport height */}

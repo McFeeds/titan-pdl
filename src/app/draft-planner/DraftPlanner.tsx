@@ -245,7 +245,7 @@ function StatsView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
     else { setSort(key); setDir(-1); }
   }
 
-  const sorted = [...selected].sort((a, b) => (statVal(b, sort) - statVal(a, sort)) * dir);
+  const sorted = [...selected].sort((a, b) => (statVal(a, sort) - statVal(b, sort)) * dir);
   const emptyCount = slots.length - selected.length;
 
   return (

@@ -447,9 +447,9 @@ export default function DraftPlanner({ pokemon }: Props) {
         {/* Header — spacer matches left col width so team name aligns with center column */}
         <div className="flex items-center mb-3 shrink-0 gap-4">
           <div className="w-80 shrink-0" />
-          <div className="flex items-center gap-1.5 flex-1">
+          <div className="flex items-center gap-1.5">
           <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)}
-            className="text-xl font-bold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-white/40 focus:outline-none min-w-0 flex-1 max-w-xs" />
+            className="text-xl font-bold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-white/40 focus:outline-none w-44 min-w-0" />
 
           <button onClick={handleSave} title="Save team"
             className={`p-1.5 rounded transition-colors ${saveFlash ? "text-emerald-400" : "text-gray-500 hover:text-white"}`}>

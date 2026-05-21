@@ -11,7 +11,6 @@ const STORAGE_KEY = "titan-pdl-draft-teams";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type View = "pokemon" | "typechart" | "stats" | "moves";
 type StatKey = "hp" | "atk" | "def" | "spa" | "spd" | "spe" | "bst";
 
 interface SavedTeam {
@@ -103,6 +102,15 @@ function TypeBadge({ type }: { type: string }) {
   return (
     <span className="text-xs px-2 py-0.5 rounded font-semibold"
       style={{ backgroundColor: c + "33", color: c }}>{titleCase(type)}</span>
+  );
+}
+
+function SectionHeading({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-3">
+      <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">{label}</span>
+      <div className="flex-1 border-t border-white/10" />
+    </div>
   );
 }
 
@@ -215,13 +223,6 @@ function StatsView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
 
   return (
     <div className="rounded-xl border border-white/10 overflow-hidden">
-      {/* Sort indicator */}
-      <div className="flex items-center gap-2 px-4 py-2 bg-white/5 border-b border-white/10">
-        <span className="text-xs text-gray-500 font-medium">SORT BY:</span>
-        <span className="text-sm font-bold text-white">{STAT_COLS.find(s => s.key === sort)?.label}</span>
-        <span className="text-gray-500 text-xs">{dir === -1 ? "↓" : "↑"}</span>
-      </div>
-
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="border-b border-white/10 bg-white/[0.03]">
@@ -232,7 +233,7 @@ function StatsView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
                 onClick={() => handleSort(key)}
                 className="px-3 py-2 text-center font-semibold cursor-pointer select-none transition-colors hover:text-white"
                 style={{ color: sort === key ? "#a5b4fc" : "#6b7280", backgroundColor: sort === key ? "rgba(99,102,241,0.1)" : undefined }}>
-                {label}
+                {label} {sort === key ? (dir === -1 ? "↓" : "↑") : ""}
               </th>
             ))}
           </tr>
@@ -261,14 +262,14 @@ function StatsView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
             </tr>
           ))}
           {selected.length === 0 && (
-            <tr><td colSpan={9} className="text-center py-12 text-gray-600 text-sm">No Pokémon selected</td></tr>
+            <tr><td colSpan={9} className="text-center py-8 text-gray-600 text-sm">No Pokémon selected</td></tr>
           )}
         </tbody>
         {selected.length > 0 && (
           <tfoot>
             <tr className="border-t-2 border-white/20 bg-white/[0.04]">
               <td />
-              <td className="px-3 py-2 text-xs font-bold text-gray-400">Average Stats</td>
+              <td className="px-3 py-2 text-xs font-bold text-gray-400">Average</td>
               {STAT_COLS.map(({ key }) => {
                 const vals = selected.map((p) => statVal(p, key));
                 const a = avg(vals);
@@ -304,51 +305,51 @@ function MovesView({
     setSelectedMoves((prev) => { const n = [...prev]; n[i] = id ? Number(id) : null; return n; });
   }
 
-  return (
-    <div className="flex flex-col gap-1.5">
-      {selectedMoves.map((moveId, i) => {
-        const learnedBy = moveId
-          ? selected.filter((p) => p.moves.some((m) => m.id === moveId))
-          : [];
-        return (
-          <div key={i} className="flex items-center gap-3 bg-white/[0.03] border border-white/10 rounded-lg px-3 py-1.5">
-            <select
-              value={moveId ?? ""}
-              onChange={(e) => setMove(i, e.target.value)}
-              className="w-44 bg-[#12122a] border border-white/10 rounded-md px-2 py-1 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors shrink-0"
-            >
-              <option value="">— Move {i + 1} —</option>
-              {allMoves.map((m) => (
-                <option key={m.id} value={m.id} disabled={usedMoveIds.has(m.id) && moveId !== m.id}>
-                  {m.name}
-                </option>
-              ))}
-            </select>
+  function renderRow(moveId: number | null, i: number) {
+    const learnedBy = moveId
+      ? selected.filter((p) => p.moves.some((m) => m.id === moveId))
+      : [];
+    return (
+      <div key={i} className="flex items-center gap-2 bg-white/[0.03] border border-white/10 rounded-lg px-2.5 py-1.5">
+        <select
+          value={moveId ?? ""}
+          onChange={(e) => setMove(i, e.target.value)}
+          className="w-40 bg-[#12122a] border border-white/10 rounded-md px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500 transition-colors shrink-0"
+        >
+          <option value="">— Move {i + 1} —</option>
+          {allMoves.map((m) => (
+            <option key={m.id} value={m.id} disabled={usedMoveIds.has(m.id) && moveId !== m.id}>
+              {m.name}
+            </option>
+          ))}
+        </select>
+        <div className="flex items-center gap-0.5 flex-wrap">
+          {learnedBy.map((p) =>
+            p.dex_number ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img key={p.id} src={spriteUrl(p.dex_number)} alt={p.name} title={p.name}
+                className="w-7 h-7 object-contain"
+                onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            ) : (
+              <PokeballIcon key={p.id} className="w-5 h-5" filled />
+            )
+          )}
+          {moveId && learnedBy.length === 0 && (
+            <span className="text-xs text-gray-600 italic">None on team</span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
-            {/* Pokemon sprites that learn this move */}
-            <div className="flex items-center gap-1 flex-wrap">
-              {learnedBy.map((p) =>
-                p.dex_number ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    key={p.id}
-                    src={spriteUrl(p.dex_number)}
-                    alt={p.name}
-                    title={p.name}
-                    className="w-8 h-8 object-contain"
-                    onError={(e) => { e.currentTarget.style.display = "none"; }}
-                  />
-                ) : (
-                  <PokeballIcon key={p.id} className="w-6 h-6" filled />
-                )
-              )}
-              {moveId && learnedBy.length === 0 && (
-                <span className="text-xs text-gray-600 italic">None on team</span>
-              )}
-            </div>
-          </div>
-        );
-      })}
+  return (
+    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+      <div className="flex flex-col gap-1.5">
+        {selectedMoves.slice(0, 8).map((moveId, i) => renderRow(moveId, i))}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {selectedMoves.slice(8).map((moveId, i) => renderRow(moveId, i + 8))}
+      </div>
     </div>
   );
 }
@@ -369,7 +370,6 @@ export default function DraftPlanner({ pokemon }: Props) {
   const [savedTeams, setSavedTeams] = useState<SavedTeam[]>([]);
   const [saveFlash, setSaveFlash] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [view, setView] = useState<View>("pokemon");
   const [selectedMoves, setSelectedMoves] = useState<(number | null)[]>(Array(MOVE_ROWS).fill(null));
 
   useEffect(() => { setSavedTeams(readTeams()); }, []);
@@ -422,19 +422,12 @@ export default function DraftPlanner({ pokemon }: Props) {
     if (currentTeamId === id) setCurrentTeamId(null);
   }
 
-  const VIEW_LABELS: { key: View; label: string }[] = [
-    { key: "pokemon", label: "Pokémon" },
-    { key: "typechart", label: "Type Chart" },
-    { key: "stats", label: "Stats" },
-    { key: "moves", label: "Moves" },
-  ];
-
   return (
     <main className="pt-20 pb-16 min-h-screen">
       <div className="max-w-[1400px] mx-auto px-6">
 
         {/* Header */}
-        <div className="flex items-center gap-3 mt-6 mb-4">
+        <div className="flex items-center gap-3 mt-6 mb-6">
           <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)}
             className="text-2xl font-bold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-white/40 focus:outline-none min-w-0 flex-1 max-w-xs" />
 
@@ -473,9 +466,9 @@ export default function DraftPlanner({ pokemon }: Props) {
         </div>
 
         {/* Main layout */}
-        <div className="flex gap-6" style={{ minHeight: "calc(100vh - 220px)" }}>
+        <div className="flex gap-6">
 
-          {/* Left panel */}
+          {/* Left panel – selectors */}
           <div className="w-80 shrink-0 flex flex-col gap-2">
             {slots.map((slot, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -530,31 +523,13 @@ export default function DraftPlanner({ pokemon }: Props) {
             </div>
           </div>
 
-          {/* Right panel */}
-          <div className="flex-1 flex flex-col gap-3 min-w-0">
+          {/* Right panel – all content sections */}
+          <div className="flex-1 flex flex-col gap-10 min-w-0">
 
-            {/* View switcher */}
-            <div className="flex gap-2">
-              {VIEW_LABELS.map(({ key, label }) => (
-                <button key={key} onClick={() => setView(key)}
-                  className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                    view === key ? "bg-indigo-600 text-white" : "bg-white/5 text-gray-400 hover:text-white hover:bg-white/10"
-                  }`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-
-            {/* Views */}
-            {view === "typechart" && <TypeChartView slots={slots} />}
-            {view === "stats" && <StatsView slots={slots} />}
-            {view === "moves" && (
-              <MovesView slots={slots} allMoves={allMoves}
-                selectedMoves={selectedMoves} setSelectedMoves={setSelectedMoves} />
-            )}
-            {view === "pokemon" && (
-              <div className="flex-1 grid grid-cols-6 gap-3"
-                style={{ gridTemplateRows: "1fr 1fr" }}>
+            {/* Pokémon grid */}
+            <div>
+              <SectionHeading label="Pokémon" />
+              <div className="grid grid-cols-6 gap-3" style={{ height: "400px", gridTemplateRows: "1fr 1fr" }}>
                 {slots.map((slot, i) => (
                   <div key={i}
                     className="bg-white/5 border border-white/10 rounded-xl flex flex-col overflow-hidden p-3 gap-1.5">
@@ -573,7 +548,7 @@ export default function DraftPlanner({ pokemon }: Props) {
                                 }
                               }} />
                           ) : (
-                            <PokeballIcon className="w-20 h-20" filled />
+                            <PokeballIcon className="w-16 h-16" filled />
                           )}
                         </div>
                         <div className="shrink-0 h-[86px] flex flex-col items-center justify-start gap-1">
@@ -584,15 +559,15 @@ export default function DraftPlanner({ pokemon }: Props) {
                           </div>
                           <div className="text-center flex flex-col w-full" style={{ gap: 2 }}>
                             <span className="text-[10px] leading-[14px] text-gray-400 truncate block">
-                              {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
+                              {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
                             </span>
                             <span className="text-[10px] leading-[14px] text-gray-400 truncate block">
-                              {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
+                              {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
                             </span>
                             <span className="text-[10px] leading-[14px] text-indigo-400 truncate block">
                               {slot.hidden_ability
                                 ? <>{formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span></>
-                                : " "}
+                                : " "}
                             </span>
                           </div>
                         </div>
@@ -606,7 +581,27 @@ export default function DraftPlanner({ pokemon }: Props) {
                   </div>
                 ))}
               </div>
-            )}
+            </div>
+
+            {/* Type Chart */}
+            <div>
+              <SectionHeading label="Type Chart" />
+              <TypeChartView slots={slots} />
+            </div>
+
+            {/* Stats */}
+            <div>
+              <SectionHeading label="Stats" />
+              <StatsView slots={slots} />
+            </div>
+
+            {/* Moves */}
+            <div>
+              <SectionHeading label="Moves" />
+              <MovesView slots={slots} allMoves={allMoves}
+                selectedMoves={selectedMoves} setSelectedMoves={setSelectedMoves} />
+            </div>
+
           </div>
         </div>
       </div>

@@ -106,7 +106,7 @@ function TypeBadge({ type, small }: { type: string; small?: boolean }) {
   const c = typeColor(type);
   return (
     <span
-      className={small ? "text-[9px] px-1 py-0 rounded font-semibold leading-tight" : "text-xs px-2 py-0.5 rounded font-semibold"}
+      className={small ? "text-[10px] px-1.5 py-0 rounded font-semibold leading-tight" : "text-xs px-2 py-0.5 rounded font-semibold"}
       style={{ backgroundColor: c + "33", color: c }}
     >
       {titleCase(type)}
@@ -559,20 +559,20 @@ export default function DraftPlanner({ pokemon }: Props) {
                             <PokeballIcon className="w-12 h-12" filled />
                           )}
                         </div>
-                        <div className="shrink-0 flex flex-col items-center gap-0.5">
-                          <span className="text-[10px] font-bold text-white text-center leading-tight truncate w-full">{slot.name}</span>
+                        <div className="shrink-0 h-[90px] flex flex-col items-center justify-start gap-0.5 pt-1">
+                          <span className="text-xs font-bold text-white text-center leading-tight truncate w-full">{slot.name}</span>
                           <div className="flex flex-wrap gap-0.5 justify-center">
                             <TypeBadge type={slot.type_1} small />
                             {slot.type_2 && <TypeBadge type={slot.type_2} small />}
                           </div>
-                          <span className="text-[9px] leading-[13px] text-gray-400 truncate w-full text-center">
-                            {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
+                          <span className="text-[10px] leading-[14px] text-gray-400 truncate w-full text-center">
+                            {slot.ability_1 ? formatAbility(slot.ability_1) : " "}
                           </span>
-                          <span className="text-[9px] leading-[13px] text-gray-400 truncate w-full text-center">
-                            {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
+                          <span className="text-[10px] leading-[14px] text-gray-400 truncate w-full text-center">
+                            {slot.ability_2 ? formatAbility(slot.ability_2) : " "}
                           </span>
-                          <span className="text-[9px] leading-[13px] text-indigo-400 truncate w-full text-center">
-                            {slot.hidden_ability ? <>{formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span></> : " "}
+                          <span className="text-[10px] leading-[14px] text-indigo-400 truncate w-full text-center">
+                            {slot.hidden_ability ? <>{formatAbility(slot.hidden_ability)} <span className="text-gray-600">(H)</span></> : " "}
                           </span>
                         </div>
                       </>

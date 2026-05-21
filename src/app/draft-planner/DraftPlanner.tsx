@@ -5,9 +5,14 @@ import { ImportantMove, PokemonWithMoves } from "@/types/database";
 import { useEffect, useMemo, useState } from "react";
 
 const SLOT_COUNT = 12;
-const MOVE_ROWS = 16;
 const DEFAULT_BUDGET = 120;
 const STORAGE_KEY = "titan-pdl-draft-teams";
+
+const DEFAULT_MOVE_NAMES = [
+  "Fake Out", "Follow Me", "Rage Powder", "Tailwind", "Trick Room",
+  "Imprison", "Icy Wind", "Encore", "Taunt", "Thunder Wave",
+  "Will-O-Wisp", "Wide Guard", "Haze", "Aurora Veil", "Reflect", "Light Screen",
+];
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -321,7 +326,7 @@ function MovesView({
               onChange={(e) => setMove(i, e.target.value)}
               className="flex-1 min-w-0 bg-[#12122a] border border-white/10 rounded px-1 py-0.5 text-[11px] text-white focus:outline-none focus:border-indigo-500 transition-colors"
             >
-              <option value="">— Move {i + 1} —</option>
+              <option value="">— None —</option>
               {allMoves.map((m) => (
                 <option key={m.id} value={m.id} disabled={usedMoveIds.has(m.id) && moveId !== m.id}>
                   {m.name}
@@ -365,7 +370,11 @@ export default function DraftPlanner({ pokemon }: Props) {
   const [savedTeams, setSavedTeams] = useState<SavedTeam[]>([]);
   const [saveFlash, setSaveFlash] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const [selectedMoves, setSelectedMoves] = useState<(number | null)[]>(Array(MOVE_ROWS).fill(null));
+  const [selectedMoves, setSelectedMoves] = useState<(number | null)[]>(() => {
+    const nameToId = new Map<string, number>();
+    pokemon.forEach((p) => p.moves.forEach((m) => nameToId.set(m.name.toLowerCase(), m.id)));
+    return DEFAULT_MOVE_NAMES.map((name) => nameToId.get(name.toLowerCase()) ?? null);
+  });
 
   useEffect(() => { setSavedTeams(readTeams()); }, []);
 

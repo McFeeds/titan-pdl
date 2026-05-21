@@ -127,7 +127,7 @@ function TypeChartView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
   const selected = slots.filter(Boolean) as PokemonWithMoves[];
 
   return (
-    <div className="overflow-auto rounded-xl border border-white/10 h-full">
+    <div className="overflow-x-auto rounded-xl border border-white/10">
       <table className="w-full text-[11px] border-collapse">
         <thead>
           <tr>
@@ -428,7 +428,7 @@ export default function DraftPlanner({ pokemon }: Props) {
   return (
     // Fixed-height layout so the entire page fits in the viewport without scrolling
     <main className="h-screen pt-20 overflow-hidden flex flex-col bg-[#0a0a1a]">
-      <div className="flex-1 max-w-[1400px] w-full mx-auto px-6 py-3 flex flex-col min-h-0">
+      <div className="flex-1 w-full px-3 py-3 flex flex-col min-h-0">
 
         {/* Header */}
         <div className="flex items-center gap-3 mb-3 shrink-0">
@@ -533,7 +533,7 @@ export default function DraftPlanner({ pokemon }: Props) {
             {/* Compact Pokémon grid — small sprites, name, types */}
             <div className="shrink-0">
               <SectionHeading label="Pokémon" />
-              <div className="grid grid-cols-6 gap-1.5" style={{ height: "152px", gridTemplateRows: "1fr 1fr" }}>
+              <div className="grid grid-cols-6 gap-1.5" style={{ height: "200px", gridTemplateRows: "1fr 1fr" }}>
                 {slots.map((slot, i) => (
                   <div key={i}
                     className="bg-white/5 border border-white/10 rounded-lg overflow-hidden p-1.5 flex flex-col gap-0.5">
@@ -568,12 +568,10 @@ export default function DraftPlanner({ pokemon }: Props) {
               </div>
             </div>
 
-            {/* Type Chart — fills remaining height */}
-            <div className="flex-1 flex flex-col min-h-0">
+            {/* Type Chart — natural height, border hugs content */}
+            <div className="shrink-0">
               <SectionHeading label="Type Chart" />
-              <div className="flex-1 min-h-0">
-                <TypeChartView slots={slots} />
-              </div>
+              <TypeChartView slots={slots} />
             </div>
 
           </div>

@@ -114,6 +114,21 @@ function TypeBadge({ type, small }: { type: string; small?: boolean }) {
   );
 }
 
+function SpriteOrBall({ dexNumber, name, className }: {
+  dexNumber: number | null | undefined;
+  name?: string;
+  className: string;
+}) {
+  const [broken, setBroken] = useState(false);
+  if (!dexNumber || broken) return <PokeballIcon className={className} filled />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={spriteUrl(dexNumber)} alt={name ?? ""} title={name}
+      className={`object-contain ${className}`}
+      onError={() => setBroken(true)} />
+  );
+}
+
 function SectionHeading({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-3 mb-2">
@@ -152,10 +167,7 @@ function TypeChartView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
               <td className="px-1 bg-white/[0.02] sticky left-0">
                 {slot ? (
                   <div className="flex items-center gap-1 h-full">
-                    {slot.dex_number ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={spriteUrl(slot.dex_number)} alt="" className="w-5 h-5 object-contain shrink-0" />
-                    ) : <PokeballIcon className="w-4 h-4 text-gray-700 shrink-0" filled />}
+                    <SpriteOrBall dexNumber={slot.dex_number} name={slot.name} className="w-5 h-5 shrink-0" />
                     <span className="text-gray-300 truncate max-w-[52px] text-[10px]">{slot.name}</span>
                   </div>
                 ) : (
@@ -252,11 +264,7 @@ function StatsView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
           {sorted.map((p, i) => (
             <tr key={p.id} className={`border-b border-white/5 ${i % 2 === 0 ? "" : "bg-white/[0.02]"}`}>
               <td className="pl-1.5 py-0.5">
-                {p.dex_number ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={spriteUrl(p.dex_number)} alt="" className="w-5 h-5 object-contain"
-                    onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                ) : <PokeballIcon className="w-4 h-4 text-gray-700" filled />}
+                <SpriteOrBall dexNumber={p.dex_number} name={p.name} className="w-5 h-5" />
               </td>
               <td className="px-1 py-0.5 text-[11px] font-medium text-gray-200 truncate max-w-[80px]">{p.name}</td>
               {STAT_COLS.map(({ key }) => (
@@ -336,16 +344,9 @@ function MovesView({
               ))}
             </select>
             <div className="flex items-center gap-0.5 shrink-0">
-              {learnedBy.map((p) =>
-                p.dex_number ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img key={p.id} src={spriteUrl(p.dex_number)} alt={p.name} title={p.name}
-                    className="w-5 h-5 object-contain"
-                    onError={(e) => { e.currentTarget.style.display = "none"; }} />
-                ) : (
-                  <PokeballIcon key={p.id} className="w-4 h-4" filled />
-                )
-              )}
+              {learnedBy.map((p) => (
+                <SpriteOrBall key={p.id} dexNumber={p.dex_number} name={p.name} className="w-5 h-5" />
+              ))}
               {moveId && learnedBy.length === 0 && (
                 <span className="text-[10px] text-gray-600 italic">—</span>
               )}

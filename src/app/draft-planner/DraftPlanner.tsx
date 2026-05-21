@@ -123,10 +123,13 @@ function SpriteOrBall({ dexNumber, name, className }: {
   if (!dexNumber || attempt === "ball") return <PokeballIcon className={className} filled />;
   const src = attempt === "small" ? spriteUrl(dexNumber) : spriteUrl(dexNumber, true);
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src={src} alt={name ?? ""} title={name}
-      className={`object-contain ${className}`}
-      onError={() => setAttempt((a) => a === "small" ? "large" : "ball")} />
+    <div className={`overflow-hidden shrink-0 ${className}`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt={name ?? ""} title={name}
+        className="w-full h-full object-contain"
+        style={{ transform: "scale(1.7)", transformOrigin: "center 30%" }}
+        onError={() => setAttempt((a) => a === "small" ? "large" : "ball")} />
+    </div>
   );
 }
 

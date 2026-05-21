@@ -119,13 +119,14 @@ function SpriteOrBall({ dexNumber, name, className }: {
   name?: string;
   className: string;
 }) {
-  const [broken, setBroken] = useState(false);
-  if (!dexNumber || broken) return <PokeballIcon className={className} filled />;
+  const [attempt, setAttempt] = useState<"small" | "large" | "ball">("small");
+  if (!dexNumber || attempt === "ball") return <PokeballIcon className={className} filled />;
+  const src = attempt === "small" ? spriteUrl(dexNumber) : spriteUrl(dexNumber, true);
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={spriteUrl(dexNumber)} alt={name ?? ""} title={name}
+    <img src={src} alt={name ?? ""} title={name}
       className={`object-contain ${className}`}
-      onError={() => setBroken(true)} />
+      onError={() => setAttempt((a) => a === "small" ? "large" : "ball")} />
   );
 }
 

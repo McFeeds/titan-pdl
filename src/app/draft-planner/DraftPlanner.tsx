@@ -37,9 +37,10 @@ function writeTeams(t: SavedTeam[]) { localStorage.setItem(STORAGE_KEY, JSON.str
 // ─── Pure helpers ─────────────────────────────────────────────────────────────
 
 function titleCase(s: string) { return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase(); }
-function formatAbility(s: string) { return s.replace(/-/g, " "); }
-function spriteUrl(n: number) {
-  return `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${n}.png`;
+function spriteUrl(n: number, large = false) {
+  return large
+    ? `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${n}.png`
+    : `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${n}.png`;
 }
 function bst(p: PokemonWithMoves) { return p.hp + p.atk + p.def + p.spa + p.spd + p.spe; }
 function avg(nums: number[]) {
@@ -146,14 +147,14 @@ function TypeChartView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
         </thead>
         <tbody>
           {slots.map((slot, i) => (
-            <tr key={i} className="border-b border-white/5">
-              <td className="px-1 py-0.5 bg-white/[0.02] sticky left-0">
+            <tr key={i} className="border-b border-white/5" style={{ height: "28px" }}>
+              <td className="px-1 bg-white/[0.02] sticky left-0">
                 {slot ? (
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 h-full">
                     {slot.dex_number ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={spriteUrl(slot.dex_number)} alt="" className="w-6 h-6 object-contain shrink-0" />
-                    ) : <PokeballIcon className="w-5 h-5 text-gray-700 shrink-0" filled />}
+                      <img src={spriteUrl(slot.dex_number)} alt="" className="w-5 h-5 object-contain shrink-0" />
+                    ) : <PokeballIcon className="w-4 h-4 text-gray-700 shrink-0" filled />}
                     <span className="text-gray-300 truncate max-w-[52px] text-[10px]">{slot.name}</span>
                   </div>
                 ) : (
@@ -161,11 +162,11 @@ function TypeChartView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
                 )}
               </td>
               {ATTACKING_TYPES.map((t) => {
-                if (!slot) return <td key={t} className="px-0.5 py-0.5 text-center" />;
+                if (!slot) return <td key={t} className="px-0.5 text-center" />;
                 const e = getEffectiveness(t, slot.type_1, slot.type_2);
                 const label = effLabel(e);
                 return (
-                  <td key={t} className="px-0.5 py-0.5 text-center font-bold"
+                  <td key={t} className="px-0.5 text-center font-bold"
                     style={{ backgroundColor: effBg(e), color: e !== 1 ? "#fff" : "transparent" }}>
                     {label}
                   </td>
@@ -176,7 +177,7 @@ function TypeChartView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
         </tbody>
         <tfoot>
           <tr className="border-t-2 border-white/20">
-            <td className="px-2 py-1 text-[9px] font-bold text-gray-400 bg-white/5 sticky left-0">OVR</td>
+            <td className="px-2 py-1 text-[9px] font-bold text-gray-400 bg-white/5 sticky left-0">Overall</td>
             {ATTACKING_TYPES.map((t) => {
               const score = ovrScore(selected, t);
               return (
@@ -186,7 +187,7 @@ function TypeChartView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
             })}
           </tr>
           <tr>
-            <td className="px-2 py-1 text-[9px] font-bold text-gray-400 bg-white/5 rounded-bl-xl sticky left-0">TYPES</td>
+            <td className="px-2 py-1 text-[9px] font-bold text-gray-400 bg-white/5 rounded-bl-xl sticky left-0">Type Count</td>
             {ATTACKING_TYPES.map((t) => {
               const count = selected.filter(
                 (p) => p.type_1.toLowerCase() === t.toLowerCase() || p.type_2?.toLowerCase() === t.toLowerCase()
@@ -366,6 +367,7 @@ export default function DraftPlanner({ pokemon }: Props) {
   const [budget, setBudget] = useState(DEFAULT_BUDGET);
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
   const [brokenIcons, setBrokenIcons] = useState<Set<number>>(new Set());
+  const [brokenArtwork, setBrokenArtwork] = useState<Set<number>>(new Set());
   const [showLoadModal, setShowLoadModal] = useState(false);
   const [savedTeams, setSavedTeams] = useState<SavedTeam[]>([]);
   const [saveFlash, setSaveFlash] = useState(false);
@@ -393,6 +395,7 @@ export default function DraftPlanner({ pokemon }: Props) {
     const found = id ? (pokemon.find((p) => p.id === Number(id)) ?? null) : null;
     setSlots((prev) => { const n = [...prev]; n[index] = found; return n; });
     setBrokenIcons((prev) => { const n = new Set(prev); n.delete(index); return n; });
+    setBrokenArtwork((prev) => { const n = new Set(prev); n.delete(index); return n; });
   }
 
   function handleSave() {
@@ -527,40 +530,46 @@ export default function DraftPlanner({ pokemon }: Props) {
             </div>
           </div>
 
-          {/* ── Col 2: Pokémon grid + Type Chart ── */}
+          {/* ── Col 2: Pokémon grid (fills space) + Type Chart (anchored at bottom) ── */}
           <div className="flex-1 flex flex-col gap-3 min-h-0">
 
-            {/* Compact Pokémon grid — small sprites, name, types */}
-            <div className="shrink-0">
+            {/* Pokémon grid — flex-1, takes all space above the type chart */}
+            <div className="flex-1 flex flex-col min-h-0">
               <SectionHeading label="Pokémon" />
-              <div className="grid grid-cols-6 gap-1.5" style={{ height: "200px", gridTemplateRows: "1fr 1fr" }}>
+              <div className="flex-1 min-h-0 grid grid-cols-6 gap-1.5" style={{ gridTemplateRows: "1fr 1fr" }}>
                 {slots.map((slot, i) => (
                   <div key={i}
-                    className="bg-white/5 border border-white/10 rounded-lg overflow-hidden p-1.5 flex flex-col gap-0.5">
+                    className="bg-white/5 border border-white/10 rounded-xl overflow-hidden flex flex-col p-2 gap-1">
                     {slot ? (
                       <>
-                        <div className="flex items-center gap-1 min-w-0">
-                          {slot.dex_number && !brokenIcons.has(i) ? (
+                        <div className="flex-1 min-h-0 flex items-center justify-center">
+                          {slot.dex_number && !brokenArtwork.has(i) ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={spriteUrl(slot.dex_number)} alt={slot.name} className="w-6 h-6 object-contain shrink-0"
-                              onError={() => setBrokenIcons((p) => new Set([...p, i]))} />
+                            <img src={spriteUrl(slot.dex_number, true)} alt={slot.name}
+                              className="h-full w-full object-contain"
+                              onError={(e) => {
+                                if (e.currentTarget.src.includes("official-artwork")) {
+                                  e.currentTarget.src = spriteUrl(slot.dex_number!);
+                                } else {
+                                  setBrokenArtwork((p) => new Set([...p, i]));
+                                }
+                              }} />
                           ) : (
-                            <PokeballIcon className="w-5 h-5 shrink-0" filled />
+                            <PokeballIcon className="w-12 h-12" filled />
                           )}
-                          <span className="text-[10px] font-bold text-white truncate leading-tight">{slot.name}</span>
                         </div>
-                        <div className="flex flex-wrap gap-0.5">
-                          <TypeBadge type={slot.type_1} small />
-                          {slot.type_2 && <TypeBadge type={slot.type_2} small />}
-                        </div>
-                        <div className="text-[8px] text-gray-500 truncate leading-tight">
-                          {[slot.ability_1, slot.ability_2].filter((a): a is string => Boolean(a)).map(formatAbility).join(" · ")}
-                          {slot.hidden_ability ? ` / ${formatAbility(slot.hidden_ability)}` : ""}
+                        <div className="shrink-0 flex flex-col items-center gap-0.5">
+                          <span className="text-[10px] font-bold text-white text-center leading-tight truncate w-full text-center">{slot.name}</span>
+                          <div className="flex flex-wrap gap-0.5 justify-center">
+                            <TypeBadge type={slot.type_1} small />
+                            {slot.type_2 && <TypeBadge type={slot.type_2} small />}
+                          </div>
                         </div>
                       </>
                     ) : (
-                      <div className="flex-1 flex items-center justify-center opacity-15">
-                        <PokeballIcon className="w-6 h-6 text-gray-400" />
+                      <div className="flex-1 flex flex-col items-center justify-center opacity-15 gap-1">
+                        <PokeballIcon className="w-8 h-8 text-gray-400" />
+                        <span className="text-[10px] text-gray-400">{i + 1}</span>
                       </div>
                     )}
                   </div>
@@ -568,7 +577,7 @@ export default function DraftPlanner({ pokemon }: Props) {
               </div>
             </div>
 
-            {/* Type Chart — natural height, border hugs content */}
+            {/* Type Chart — shrink-0, anchored at bottom of center column */}
             <div className="shrink-0">
               <SectionHeading label="Type Chart" />
               <TypeChartView slots={slots} />

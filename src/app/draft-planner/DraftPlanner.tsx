@@ -5,7 +5,7 @@ import { ImportantMove, PokemonWithMoves } from "@/types/database";
 import { useEffect, useMemo, useState } from "react";
 
 const SLOT_COUNT = 12;
-const DEFAULT_BUDGET = 120;
+const DEFAULT_BUDGET = 115;
 const STORAGE_KEY = "titan-pdl-draft-teams";
 
 const DEFAULT_MOVE_NAMES = [
@@ -399,6 +399,8 @@ export default function DraftPlanner({ pokemon }: Props) {
   const pointsRemaining = budget - pointsSpent;
   const overBudget = pointsRemaining < 0;
 
+  const sortedPokemon = useMemo(() => [...pokemon].sort((a, b) => a.name.localeCompare(b.name)), [pokemon]);
+
   const allMoves = useMemo(() => {
     const map = new Map<number, ImportantMove>();
     pokemon.forEach((p) => p.moves.forEach((m) => map.set(m.id, m)));
@@ -505,7 +507,7 @@ export default function DraftPlanner({ pokemon }: Props) {
                 <select value={slot?.id ?? ""} onChange={(e) => setSlot(i, e.target.value)}
                   className="flex-1 min-w-0 bg-[#12122a] border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500 transition-colors">
                   <option value="">— Empty —</option>
-                  {pokemon.map((p) => (
+                  {sortedPokemon.map((p) => (
                     <option key={p.id} value={p.id} disabled={usedIds.has(p.id) && slot?.id !== p.id}>{p.name}</option>
                   ))}
                 </select>

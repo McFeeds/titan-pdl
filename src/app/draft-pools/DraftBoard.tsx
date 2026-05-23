@@ -95,10 +95,20 @@ function buildClauseFilter(
     }
   }
 
-  // Type filter — skip types already consumed by the resistance filter
-  const matchedTypes = POKEMON_TYPES.filter(
-    (t) => !resistClaimedTypes.has(t) && new RegExp(`\\b${t}\\b`, "i").test(qForTypes)
-  );
+  // Type filter — skip types already consumed by the resistance filter.
+  // Only count a type word if it's followed by a recognized qualifier or end-of-string,
+  // so move names like "Ice Spinner" don't accidentally match the Ice type.
+  const AFTER_TYPE_OK = /^\s*(?:type|types|pokemon|with|that|and|or|which|over|under|above|below|more|than|less|at|least|most|greater|fewer|$)/i;
+  const matchedTypes = POKEMON_TYPES.filter((t) => {
+    if (resistClaimedTypes.has(t)) return false;
+    const re = new RegExp(`\\b${t}\\b`, "gi");
+    let m;
+    while ((m = re.exec(qForTypes)) !== null) {
+      const after = qForTypes.slice(m.index + m[0].length);
+      if (AFTER_TYPE_OK.test(after)) return true;
+    }
+    return false;
+  });
   if (matchedTypes.length > 0) {
     filters.push((p) =>
       matchedTypes.some(

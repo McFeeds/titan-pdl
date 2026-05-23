@@ -49,7 +49,7 @@ function findStat(str: string): StatKey | null {
   return null;
 }
 
-function buildFilter(
+function buildClauseFilter(
   query: string,
   allPokemon: PokemonWithMoves[]
 ): (p: PokemonWithMoves) => boolean {
@@ -198,6 +198,25 @@ function buildFilter(
   }
 
   return (p) => filters.every((f) => f(p));
+}
+
+function buildFilter(
+  query: string,
+  allPokemon: PokemonWithMoves[]
+): (p: PokemonWithMoves) => boolean {
+  if (!query.trim()) return () => true;
+
+  // OR splits into independent branches (any branch can match)
+  const orBranches = query.split(/\bOR\b/i).map((s) => s.trim()).filter(Boolean);
+
+  const branchFilters = orBranches.map((branch) => {
+    // AND within a branch: all clauses must match
+    const andClauses = branch.split(/\bAND\b/i).map((s) => s.trim()).filter(Boolean);
+    const clauseFilters = andClauses.map((c) => buildClauseFilter(c, allPokemon));
+    return (p: PokemonWithMoves) => clauseFilters.every((f) => f(p));
+  });
+
+  return (p) => branchFilters.some((f) => f(p));
 }
 
 interface Props {
@@ -351,7 +370,7 @@ export default function DraftBoard({
         <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
           <input
             type="text"
-            placeholder='Search... e.g. "Water types with Intimidate", "Learns Fake Out less than 15 points", "Over 100 speed"'
+            placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
             value={rawQuery}
             onChange={(e) => setRawQuery(e.target.value)}
             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"

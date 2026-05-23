@@ -57,12 +57,30 @@ function buildClauseFilter(
   const q = query.toLowerCase();
   const filters: ((p: PokemonWithMoves) => boolean)[] = [];
 
+  // Detect known move names first so their words don't bleed into the type filter.
+  // e.g. "Ice Spinner" must not trigger the Ice type filter.
+  const allMoves = new Set<string>();
+  allPokemon.forEach((p) => p.moves.forEach((m) => allMoves.add(m.name.toLowerCase())));
+  const matchedMoves = [...allMoves]
+    .sort((a, b) => b.length - a.length)
+    .filter((m) =>
+      new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(q)
+    );
+  // Strip matched move names so type detection doesn't see words like "ice" inside them
+  let qForTypes = q;
+  for (const move of matchedMoves) {
+    qForTypes = qForTypes.replace(
+      new RegExp(`\\b${move.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"),
+      ""
+    );
+  }
+
   // Resistance filter: "resists X", "immune to X", "weak to X"
   // Run this first so we can exclude these types from the plain type filter below
   const resistClaimedTypes = new Set<string>();
   const resistPattern = /(?:(resists?|immune to|not affected by|weak(?:ness)?(?:\s+to)?)\s+)([\w]+)/gi;
   let resistMatch;
-  while ((resistMatch = resistPattern.exec(q)) !== null) {
+  while ((resistMatch = resistPattern.exec(qForTypes)) !== null) {
     const keyword = resistMatch[1].toLowerCase();
     const typeName = resistMatch[2].toLowerCase();
     if (!POKEMON_TYPES.includes(typeName)) continue;
@@ -79,7 +97,7 @@ function buildClauseFilter(
 
   // Type filter — skip types already consumed by the resistance filter
   const matchedTypes = POKEMON_TYPES.filter(
-    (t) => !resistClaimedTypes.has(t) && new RegExp(`\\b${t}\\b`, "i").test(q)
+    (t) => !resistClaimedTypes.has(t) && new RegExp(`\\b${t}\\b`, "i").test(qForTypes)
   );
   if (matchedTypes.length > 0) {
     filters.push((p) =>
@@ -154,13 +172,7 @@ function buildClauseFilter(
   }
 
   // Also detect known move names directly in the query (no keyword required)
-  const allMoves = new Set<string>();
-  allPokemon.forEach((p) => p.moves.forEach((m) => allMoves.add(m.name.toLowerCase())));
-  const matchedMoves = [...allMoves]
-    .sort((a, b) => b.length - a.length)
-    .filter((m) =>
-      new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(q)
-    );
+  // matchedMoves was already computed above before the type filter
   if (matchedMoves.length > 0) {
     filters.push((p) =>
       matchedMoves.some((m) => p.moves.some((pm) => pm.name.toLowerCase() === m))

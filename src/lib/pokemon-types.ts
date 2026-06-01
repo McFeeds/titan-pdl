@@ -45,6 +45,57 @@ export function getEffectiveness(atk: string, def1: string, def2?: string | null
   return (row[def1.toLowerCase()] ?? 1) * (def2 ? (row[def2.toLowerCase()] ?? 1) : 1);
 }
 
+// Ability modifiers: multiplier is applied on top of the base type effectiveness.
+// 0 = immunity, <1 = damage reduction, >1 = damage boost.
+const ABILITY_TYPE_MODS: Record<string, { type: string; multiplier: number }[]> = {
+  "levitate":        [{ type: "ground",   multiplier: 0 }],
+  "flash-fire":      [{ type: "fire",     multiplier: 0 }],
+  "water-absorb":    [{ type: "water",    multiplier: 0 }],
+  "volt-absorb":     [{ type: "electric", multiplier: 0 }],
+  "storm-drain":     [{ type: "water",    multiplier: 0 }],
+  "lightning-rod":   [{ type: "electric", multiplier: 0 }],
+  "sap-sipper":      [{ type: "grass",    multiplier: 0 }],
+  "motor-drive":     [{ type: "electric", multiplier: 0 }],
+  "earth-eater":     [{ type: "ground",   multiplier: 0 }],
+  "well-baked-body": [{ type: "fire",     multiplier: 0 }],
+  "heatproof":       [{ type: "fire",     multiplier: 0.5 }],
+  "thick-fat":       [{ type: "fire",     multiplier: 0.5 }, { type: "ice", multiplier: 0.5 }],
+  "water-bubble":    [{ type: "fire",     multiplier: 0.5 }],
+  "purifying-salt":  [{ type: "ghost",    multiplier: 0.5 }],
+  // Dry Skin: absorbs Water, but Fire deals 25% more damage
+  "dry-skin":        [{ type: "water",    multiplier: 0 }, { type: "fire", multiplier: 1.25 }],
+  // Fluffy: contact moves deal half damage, but Fire moves deal double
+  "fluffy":          [{ type: "fire",     multiplier: 2 }],
+};
+
+// Filter, Prism Armor, and Solid Rock reduce all super-effective damage by ×0.75.
+// Handled separately since they apply to any type where effectiveness > 1.
+const SUPER_EFFECTIVE_REDUCERS = new Set(["filter", "prism-armor", "solid-rock"]);
+
+export function getEffectivenessWithAbilities(
+  atk: string,
+  def1: string,
+  def2: string | null | undefined,
+  abilities: (string | null | undefined)[],
+): number {
+  let e = getEffectiveness(atk, def1, def2);
+  const atkLower = atk.toLowerCase();
+  for (const ability of abilities) {
+    if (!ability) continue;
+    const abilityLower = ability.toLowerCase();
+    if (SUPER_EFFECTIVE_REDUCERS.has(abilityLower)) {
+      if (e > 1) e *= 0.75;
+      continue;
+    }
+    const mods = ABILITY_TYPE_MODS[abilityLower];
+    if (!mods) continue;
+    for (const mod of mods) {
+      if (mod.type === atkLower) e *= mod.multiplier;
+    }
+  }
+  return e;
+}
+
 export function typeColor(type: string): string {
   const key = type.charAt(0).toUpperCase() + type.slice(1).toLowerCase();
   return TYPE_COLORS[key] ?? "#6b7280";

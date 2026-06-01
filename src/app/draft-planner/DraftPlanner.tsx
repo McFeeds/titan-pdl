@@ -1,6 +1,6 @@
 "use client";
 
-import { ATTACKING_TYPES, getEffectiveness, typeColor } from "@/lib/pokemon-types";
+import { ATTACKING_TYPES, getEffectivenessWithAbilities, typeColor } from "@/lib/pokemon-types";
 import { ImportantMove, PokemonWithMoves } from "@/types/database";
 import { useEffect, useMemo, useState } from "react";
 
@@ -51,24 +51,35 @@ function avg(nums: number[]) {
 // ─── Type chart cell helpers ──────────────────────────────────────────────────
 
 function effLabel(e: number) {
-  if (e === 0) return "0"; if (e === 0.25) return "¼"; if (e === 0.5) return "½";
-  if (e === 2) return "2"; if (e === 4) return "4"; return "";
+  if (e === 0)   return "0";
+  if (e <= 0.25) return "¼";
+  if (e <= 0.75) return "½";   // catches 0.5 and 0.625 (Dry Skin on fire-resist type)
+  if (e <= 1)    return "";
+  if (e < 1.4)   return "1¼";  // 1.25 from Dry Skin on neutral
+  if (e < 1.9)   return "1½";  // 1.5 from Filter/Prism Armor on 2×
+  if (e < 2.3)   return "2";
+  if (e < 3.5)   return "3";   // 2.5 and 3 (Filter on 4×, Dry Skin on 2×)
+  if (e < 4.5)   return "4";
+  return "5";                   // 5 from Dry Skin on 4× (e.g. Grass/Bug + Dry Skin)
 }
 function effBg(e: number): string {
-  if (e === 0)    return "#14532d";
-  if (e === 0.25) return "#166534";
-  if (e === 0.5)  return "#15803d";
-  if (e === 2)    return "#b91c1c";
-  if (e === 4)    return "#7f1d1d";
+  if (e === 0)   return "#14532d";
+  if (e <= 0.25) return "#166534";
+  if (e <= 0.75) return "#15803d";
+  if (e > 4)     return "#450a0a";
+  if (e >= 3.5)  return "#7f1d1d";
+  if (e >= 2.3)  return "#991b1b";  // 3×
+  if (e >= 1.9)  return "#b91c1c";  // 2×, 2.5×
+  if (e > 1)     return "#c2410c";  // 1¼×, 1½× — amber for slight weakness
   return "transparent";
 }
 function ovrScore(pokemon: PokemonWithMoves[], type: string) {
   return pokemon.reduce((sum, p) => {
-    const e = getEffectiveness(type, p.type_1, p.type_2);
-    if (e === 0 || e === 0.25) return sum - 2;
-    if (e === 0.5) return sum - 1;
-    if (e === 2) return sum + 1;
-    if (e === 4) return sum + 2;
+    const e = getEffectivenessWithAbilities(type, p.type_1, p.type_2, [p.ability_1, p.ability_2, p.hidden_ability]);
+    if (e === 0 || e <= 0.25) return sum - 2;
+    if (e < 1)  return sum - 1;
+    if (e >= 4) return sum + 2;
+    if (e > 1)  return sum + 1;
     return sum;
   }, 0);
 }
@@ -180,7 +191,7 @@ function TypeChartView({ slots }: { slots: (PokemonWithMoves | null)[] }) {
               </td>
               {ATTACKING_TYPES.map((t) => {
                 if (!slot) return <td key={t} className="px-0.5 text-center" />;
-                const e = getEffectiveness(t, slot.type_1, slot.type_2);
+                const e = getEffectivenessWithAbilities(t, slot.type_1, slot.type_2, [slot.ability_1, slot.ability_2, slot.hidden_ability]);
                 const label = effLabel(e);
                 return (
                   <td key={t} className="px-0.5 text-center font-bold"

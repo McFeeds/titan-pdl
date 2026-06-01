@@ -49,7 +49,7 @@ function findStat(str: string): StatKey | null {
   return null;
 }
 
-function buildFilter(
+function buildClauseFilter(
   query: string,
   allPokemon: PokemonWithMoves[]
 ): (p: PokemonWithMoves) => boolean {
@@ -57,12 +57,30 @@ function buildFilter(
   const q = query.toLowerCase();
   const filters: ((p: PokemonWithMoves) => boolean)[] = [];
 
+  // Detect known move names first so their words don't bleed into the type filter.
+  // e.g. "Ice Spinner" must not trigger the Ice type filter.
+  const allMoves = new Set<string>();
+  allPokemon.forEach((p) => p.moves.forEach((m) => allMoves.add(m.name.toLowerCase())));
+  const matchedMoves = [...allMoves]
+    .sort((a, b) => b.length - a.length)
+    .filter((m) =>
+      new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(q)
+    );
+  // Strip matched move names so type detection doesn't see words like "ice" inside them
+  let qForTypes = q;
+  for (const move of matchedMoves) {
+    qForTypes = qForTypes.replace(
+      new RegExp(`\\b${move.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"),
+      ""
+    );
+  }
+
   // Resistance filter: "resists X", "immune to X", "weak to X"
   // Run this first so we can exclude these types from the plain type filter below
   const resistClaimedTypes = new Set<string>();
   const resistPattern = /(?:(resists?|immune to|not affected by|weak(?:ness)?(?:\s+to)?)\s+)([\w]+)/gi;
   let resistMatch;
-  while ((resistMatch = resistPattern.exec(q)) !== null) {
+  while ((resistMatch = resistPattern.exec(qForTypes)) !== null) {
     const keyword = resistMatch[1].toLowerCase();
     const typeName = resistMatch[2].toLowerCase();
     if (!POKEMON_TYPES.includes(typeName)) continue;
@@ -77,10 +95,20 @@ function buildFilter(
     }
   }
 
-  // Type filter — skip types already consumed by the resistance filter
-  const matchedTypes = POKEMON_TYPES.filter(
-    (t) => !resistClaimedTypes.has(t) && new RegExp(`\\b${t}\\b`, "i").test(q)
-  );
+  // Type filter — skip types already consumed by the resistance filter.
+  // Only count a type word if it's followed by a recognized qualifier or end-of-string,
+  // so move names like "Ice Spinner" don't accidentally match the Ice type.
+  const AFTER_TYPE_OK = /^\s*(?:type|types|pokemon|with|that|and|or|which|over|under|above|below|more|than|less|at|least|most|greater|fewer|$)/i;
+  const matchedTypes = POKEMON_TYPES.filter((t) => {
+    if (resistClaimedTypes.has(t)) return false;
+    const re = new RegExp(`\\b${t}\\b`, "gi");
+    let m;
+    while ((m = re.exec(qForTypes)) !== null) {
+      const after = qForTypes.slice(m.index + m[0].length);
+      if (AFTER_TYPE_OK.test(after)) return true;
+    }
+    return false;
+  });
   if (matchedTypes.length > 0) {
     filters.push((p) =>
       matchedTypes.some(
@@ -154,13 +182,7 @@ function buildFilter(
   }
 
   // Also detect known move names directly in the query (no keyword required)
-  const allMoves = new Set<string>();
-  allPokemon.forEach((p) => p.moves.forEach((m) => allMoves.add(m.name.toLowerCase())));
-  const matchedMoves = [...allMoves]
-    .sort((a, b) => b.length - a.length)
-    .filter((m) =>
-      new RegExp(`\\b${m.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i").test(q)
-    );
+  // matchedMoves was already computed above before the type filter
   if (matchedMoves.length > 0) {
     filters.push((p) =>
       matchedMoves.some((m) => p.moves.some((pm) => pm.name.toLowerCase() === m))
@@ -198,6 +220,25 @@ function buildFilter(
   }
 
   return (p) => filters.every((f) => f(p));
+}
+
+function buildFilter(
+  query: string,
+  allPokemon: PokemonWithMoves[]
+): (p: PokemonWithMoves) => boolean {
+  if (!query.trim()) return () => true;
+
+  // OR splits into independent branches (any branch can match)
+  const orBranches = query.split(/\bOR\b/i).map((s) => s.trim()).filter(Boolean);
+
+  const branchFilters = orBranches.map((branch) => {
+    // AND within a branch: all clauses must match
+    const andClauses = branch.split(/\bAND\b/i).map((s) => s.trim()).filter(Boolean);
+    const clauseFilters = andClauses.map((c) => buildClauseFilter(c, allPokemon));
+    return (p: PokemonWithMoves) => clauseFilters.every((f) => f(p));
+  });
+
+  return (p) => branchFilters.some((f) => f(p));
 }
 
 interface Props {
@@ -351,7 +392,7 @@ export default function DraftBoard({
         <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
           <input
             type="text"
-            placeholder='Search... e.g. "Water types with Intimidate", "Learns Fake Out less than 15 points", "Over 100 speed"'
+            placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
             value={rawQuery}
             onChange={(e) => setRawQuery(e.target.value)}
             className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"

@@ -5,7 +5,8 @@ Seed the Supabase pokemon, important_moves, and pokemon_moves tables.
 Data sources:
   - Point values        : pokemon-tiering.txt   (tab-separated: name<TAB>points)
   - Curated move list   : important-moves.txt   (one move name per line)
-  - Types/abilities/stats/learnsets : PokeAPI (https://pokeapi.co)
+  - Stats/types/abilities : PokeAPI (https://pokeapi.co)
+  - Learnsets           : Pokemon Showdown (more complete than PokeAPI)
 
 For Pokemon forms that exist in PokeAPI (megas, regionals, etc.) the script
 fetches their actual stats and abilities.  For custom forms invented by the
@@ -21,6 +22,7 @@ Environment variables (or a .env / .env.local in the project root):
   SUPABASE_SERVICE_KEY — service-role key (bypasses RLS for writes)
 """
 
+import json
 import os
 import re
 import sys
@@ -46,11 +48,31 @@ except ImportError:
 # Config
 # ---------------------------------------------------------------------------
 
-TIERING_FILE     = Path(__file__).parent / "pokemon-tiering.txt"
-MOVES_FILE       = Path(__file__).parent / "important-moves.txt"
-POKEAPI_BASE     = "https://pokeapi.co/api/v2"
-REQUEST_DELAY    = 0.25   # seconds between PokeAPI requests
-BATCH_SIZE       = 50     # rows per Supabase upsert
+TIERING_FILE             = Path(__file__).parent / "pokemon-tiering.txt"
+MOVES_FILE               = Path(__file__).parent / "important-moves.txt"
+POKEAPI_BASE             = "https://pokeapi.co/api/v2"
+SHOWDOWN_BASE_URL        = "https://raw.githubusercontent.com/smogon/pokemon-showdown/master"
+SHOWDOWN_LEARNSETS_URL   = f"{SHOWDOWN_BASE_URL}/data/learnsets.ts"
+SHOWDOWN_CHAMPIONS_URL   = f"{SHOWDOWN_BASE_URL}/data/mods/champions/learnsets.ts"
+REQUEST_DELAY            = 0.25   # seconds between PokeAPI requests
+BATCH_SIZE               = 50     # rows per Supabase upsert
+
+# Generation priority: newest first. Each inner list is a group of generation
+# prefixes treated as equivalent (e.g. SwSh / PLA / BDSP all count as "Gen 8").
+# The first group where the Pokemon has at least one move wins; its full set of
+# moves from that generation group is used.  Older generations are only
+# consulted if the Pokemon has no moves at all in newer ones.
+GENERATION_PRIORITY: list[list[str]] = [
+    ["9"],            # Gen 9  – Scarlet / Violet
+    ["8", "8a", "8b"],# Gen 8  – Sword/Shield, Legends: Arceus, BDSP
+    ["7"],            # Gen 7  – Sun/Moon, USUM
+    ["6"],            # Gen 6  – X/Y, ORAS
+    ["5"],            # Gen 5  – Black/White, B2W2
+    ["4"],            # Gen 4  – Diamond/Pearl, Platinum, HGSS
+    ["3"],            # Gen 3  – RSE, FRLG
+    ["2"],            # Gen 2  – Gold/Silver, Crystal
+    ["1"],            # Gen 1  – Red/Blue, Yellow
+]
 
 
 # ---------------------------------------------------------------------------
@@ -98,16 +120,34 @@ def move_name_to_slug(name: str) -> str:
 _api_cache: dict[str, dict | None] = {}
 
 
+def _get_with_retry(url: str, retries: int = 3, timeout: int = 30) -> requests.Response:
+    """GET a URL with exponential-backoff retry on timeout or 5xx errors."""
+    delay = 2.0
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            if resp.status_code < 500:
+                return resp
+        except requests.exceptions.ReadTimeout:
+            pass
+        if attempt < retries - 1:
+            print(f"    [retry {attempt + 1}/{retries - 1}] {url}")
+            time.sleep(delay)
+            delay *= 2
+    # Final attempt — let exceptions propagate
+    return requests.get(url, timeout=timeout)
+
+
 def fetch_pokemon(slug: str) -> dict | None:
     """Fetch /pokemon/{slug}; on 404 falls back to /pokemon-species/{slug} and
     fetches the default variety (handles multi-form Pokemon like Aegislash)."""
     if slug in _api_cache:
         return _api_cache[slug]
 
-    resp = requests.get(f"{POKEAPI_BASE}/pokemon/{slug}", timeout=15)
+    resp = _get_with_retry(f"{POKEAPI_BASE}/pokemon/{slug}")
 
     if resp.status_code == 404:
-        species_resp = requests.get(f"{POKEAPI_BASE}/pokemon-species/{slug}", timeout=15)
+        species_resp = _get_with_retry(f"{POKEAPI_BASE}/pokemon-species/{slug}")
         if species_resp.status_code == 404:
             _api_cache[slug] = None
             return None
@@ -120,7 +160,7 @@ def fetch_pokemon(slug: str) -> dict | None:
             _api_cache[slug] = None
             return None
 
-        resp = requests.get(default_variety["pokemon"]["url"], timeout=15)
+        resp = _get_with_retry(default_variety["pokemon"]["url"])
 
     resp.raise_for_status()
     time.sleep(REQUEST_DELAY)
@@ -194,22 +234,168 @@ def build_placeholder_row(display_name: str, point_value: int) -> dict:
     }
 
 
-def get_learnable_slugs(api_data: dict) -> tuple[set[str], bool]:
-    """Return (move_slugs, used_base_form_fallback).
+def _parse_showdown_learnset_file(url: str) -> dict:
+    """Fetch and parse any Showdown learnset TypeScript/JS file.
 
-    Mega evolutions and other alternate forms often have an empty moves list in
-    PokeAPI — in that case, fall back to the base species' default form learnset.
+    Locates the top-level object by brace-matching so it's robust to CommonJS,
+    ESM, or TypeScript wrapper syntax changes.
     """
-    raw_moves = api_data.get("moves", [])
-    used_fallback = False
-    if not raw_moves:
-        species_name = api_data.get("species", {}).get("name")
-        if species_name:
-            base_data = fetch_pokemon(species_name)
-            if base_data:
-                raw_moves = base_data.get("moves", [])
-                used_fallback = True
-    return {m["move"]["name"] for m in raw_moves}, used_fallback
+    resp = requests.get(url, timeout=30)
+    resp.raise_for_status()
+    text = resp.text
+
+    start = text.find("{")
+    if start == -1:
+        raise ValueError(f"No '{{' found in response from {url} (first 200 chars): {text[:200]!r}")
+
+    depth = 0
+    end = start
+    in_string = False
+    escape_next = False
+    for i, ch in enumerate(text[start:], start):
+        if escape_next:
+            escape_next = False
+            continue
+        if ch == "\\" and in_string:
+            escape_next = True
+            continue
+        if ch == '"' and not escape_next:
+            in_string = not in_string
+            continue
+        if in_string:
+            continue
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i
+                break
+
+    obj_text = text[start : end + 1]
+
+    # Strip TypeScript/JS comments before any other processing.
+    # Block comments first so their content doesn't confuse the line-comment strip.
+    obj_text = re.sub(r'/\*.*?\*/', '', obj_text, flags=re.DOTALL)
+    obj_text = re.sub(r'//[^\n]*', '', obj_text)
+
+    # Replace JS-only literals that are not valid JSON
+    obj_text = re.sub(r'\bundefined\b', 'null', obj_text)
+
+    # Convert single-quoted strings to double-quoted (JS allows both, JSON requires double).
+    # Handles escaped characters inside the string (e.g. \') before replacing.
+    obj_text = re.sub(r"'((?:[^'\\]|\\.)*)'", r'"\1"', obj_text)
+
+    obj_text = re.sub(r'([{,]\s*)([A-Za-z_$][\w$]*)(\s*:)', r'\1"\2"\3', obj_text)
+    obj_text = re.sub(r',(\s*[}\]])', r'\1', obj_text)
+
+    try:
+        return json.loads(obj_text)
+    except json.JSONDecodeError as e:
+        ctx_start = max(0, e.pos - 120)
+        ctx_end = min(len(obj_text), e.pos + 120)
+        raise ValueError(
+            f"Failed to parse learnsets JSON from {url}: {e}\n"
+            f"Context around char {e.pos}:\n{obj_text[ctx_start:ctx_end]!r}"
+        ) from e
+
+
+def fetch_showdown_learnsets() -> tuple[dict, dict]:
+    """Return (base_learnsets, champions_learnsets) from the Showdown GitHub repo."""
+    print("Fetching base learnsets from Pokemon Showdown...")
+    base = _parse_showdown_learnset_file(SHOWDOWN_LEARNSETS_URL)
+    print(f"  Loaded {len(base)} base learnset entries")
+
+    print("Fetching Champions mod learnsets from Pokemon Showdown...")
+    champions = _parse_showdown_learnset_file(SHOWDOWN_CHAMPIONS_URL)
+    print(f"  Loaded {len(champions)} Champions learnset entries\n")
+
+    return base, champions
+
+
+def _showdown_id(slug: str) -> str:
+    """PokeAPI slug → Showdown ID: 'gengar-mega' → 'gengarmega'."""
+    return slug.replace("-", "")
+
+
+def _extract_learnset(entry: dict) -> dict:
+    """Return the flat move→methods dict from a Showdown learnset entry."""
+    if "learnset" in entry:
+        return entry["learnset"]
+    return {k: v for k, v in entry.items() if isinstance(v, list)}
+
+
+def _moves_for_gen_group(learnset: dict, prefixes: list[str]) -> set[str]:
+    """Return all move IDs the Pokemon can learn in a generation group."""
+    return {
+        move for move, methods in learnset.items()
+        if any(
+            any(method.startswith(p) for p in prefixes)
+            for method in methods
+        )
+    }
+
+
+def _moves_by_priority(learnset: dict) -> set[str]:
+    """Return moves for the highest generation this Pokemon appears in.
+
+    Walks GENERATION_PRIORITY from newest to oldest and returns the full
+    move set for the first generation group where the Pokemon has any moves.
+    """
+    for gen_prefixes in GENERATION_PRIORITY:
+        moves = _moves_for_gen_group(learnset, gen_prefixes)
+        if moves:
+            return moves
+    return set()
+
+
+def _resolve_learnset(poke_id: str, api_data: dict, learnset_source: dict) -> tuple[dict, bool]:
+    """Look up a Pokemon's learnset in a given source, falling back to base species for forms."""
+    entry = learnset_source.get(poke_id)
+    if entry:
+        return _extract_learnset(entry), False
+
+    species_name = api_data.get("species", {}).get("name", "")
+    base_id = _showdown_id(species_name)
+    if base_id and base_id != poke_id:
+        base_entry = learnset_source.get(base_id)
+        if base_entry:
+            return _extract_learnset(base_entry), True
+
+    return {}, False
+
+
+def get_learnable_slugs(
+    api_data: dict,
+    base_learnsets: dict,
+    champions_learnsets: dict,
+    move_slugs: set[str],
+) -> tuple[set[str], bool]:
+    """Return (learnable_important_move_slugs, used_base_form_fallback).
+
+    Priority:
+      1. Champions mod learnset — if the Pokemon has an entry, use it.
+      2. Base learnsets with generation priority (Gen 9 → Gen 8 → … → Gen 1).
+    Megas and other forms with no direct entry fall back to the base species
+    in whichever source is being consulted.
+    """
+    showdown_to_slug = {slug.replace("-", ""): slug for slug in move_slugs}
+    poke_id = _showdown_id(api_data["name"])
+
+    # 1. Champions mod
+    learnset, used_fallback = _resolve_learnset(poke_id, api_data, champions_learnsets)
+    if learnset:
+        available = set(learnset.keys())
+        return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, used_fallback
+
+    # 2. Base learnsets with generation-priority filtering
+    learnset, used_fallback = _resolve_learnset(poke_id, api_data, base_learnsets)
+    if not learnset:
+        print(f"  [WARN] No Showdown learnset for '{api_data['name']}' (id: {poke_id})")
+        return set(), False
+
+    available = _moves_by_priority(learnset)
+    return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, used_fallback
 
 
 # ---------------------------------------------------------------------------
@@ -248,11 +434,16 @@ def parse_moves_file(path: Path) -> list[tuple[str, str]]:
 # Supabase helpers
 # ---------------------------------------------------------------------------
 
-def upsert_batched(
-    supabase: "Client", table: str, rows: list[dict], on_conflict: str
-) -> None:
+def clear_tables(supabase: "Client") -> None:
+    """Delete all rows from the three tables in FK-safe order."""
+    supabase.table("pokemon_moves").delete().gte("pokemon_id", 0).execute()
+    supabase.table("pokemon").delete().gte("id", 0).execute()
+    supabase.table("important_moves").delete().gte("id", 0).execute()
+
+
+def insert_batched(supabase: "Client", table: str, rows: list[dict]) -> None:
     for i in range(0, len(rows), BATCH_SIZE):
-        supabase.table(table).upsert(rows[i : i + BATCH_SIZE], on_conflict=on_conflict).execute()
+        supabase.table(table).insert(rows[i : i + BATCH_SIZE]).execute()
 
 
 # ---------------------------------------------------------------------------
@@ -286,7 +477,12 @@ def main() -> None:
     print(f"Loaded {len(move_pairs)} important moves from {MOVES_FILE.name}\n")
 
     # ------------------------------------------------------------------
-    # 2. Fetch each Pokemon from PokeAPI
+    # 2. Fetch Pokemon Showdown learnset data (single request, used for all Pokemon)
+    # ------------------------------------------------------------------
+    base_learnsets, champions_learnsets = fetch_showdown_learnsets()
+
+    # ------------------------------------------------------------------
+    # 3. Fetch each Pokemon from PokeAPI
     # ------------------------------------------------------------------
     pokemon_rows:     list[dict]         = []
     placeholder_names: list[str]         = []
@@ -299,8 +495,7 @@ def main() -> None:
 
         if api_data is not None:
             row = build_pokemon_row_from_api(api_data, display_name, point_value)
-            learnable, used_fallback = get_learnable_slugs(api_data)
-            learnable &= move_slugs
+            learnable, used_fallback = get_learnable_slugs(api_data, base_learnsets, champions_learnsets, move_slugs)
             learnable_map[slug] = learnable
             label = "FALLBACK    " if used_fallback else "OK          "
             print(f"  {label}{display_name}" + (" (moves from base form)" if used_fallback else ""))
@@ -313,18 +508,28 @@ def main() -> None:
         pokemon_rows.append(row)
 
     # ------------------------------------------------------------------
-    # 3. Upsert pokemon
+    # 4. Clear existing data and insert fresh rows
     # ------------------------------------------------------------------
-    print(f"\nUpserting {len(pokemon_rows)} Pokemon...")
-    upsert_batched(supabase, "pokemon", pokemon_rows, on_conflict="slug")
+    print("\nClearing existing table data...")
+    clear_tables(supabase)
     print("Done.")
 
-    # ------------------------------------------------------------------
-    # 4. Upsert important_moves (from the curated txt file)
-    # ------------------------------------------------------------------
+    # Deduplicate by slug — keep last occurrence to match prior upsert behaviour.
+    # Duplicates in the tiering file are warned about during the fetch loop above.
+    seen_slugs: dict[str, int] = {}
+    for i, row in enumerate(pokemon_rows):
+        if row["slug"] in seen_slugs:
+            print(f"  [WARN] Duplicate slug '{row['slug']}' in tiering file — keeping last entry")
+        seen_slugs[row["slug"]] = i
+    pokemon_rows = [pokemon_rows[i] for i in seen_slugs.values()]
+
+    print(f"\nInserting {len(pokemon_rows)} Pokemon...")
+    insert_batched(supabase, "pokemon", pokemon_rows)
+    print("Done.")
+
     move_rows = [{"name": name, "slug": slug} for name, slug in move_pairs]
-    print(f"\nUpserting {len(move_rows)} important moves...")
-    upsert_batched(supabase, "important_moves", move_rows, on_conflict="slug")
+    print(f"\nInserting {len(move_rows)} important moves...")
+    insert_batched(supabase, "important_moves", move_rows)
     print("Done.")
 
     # ------------------------------------------------------------------
@@ -349,8 +554,8 @@ def main() -> None:
                 continue
             junction_rows.append({"pokemon_id": pokemon_id, "move_id": move_id})
 
-    print(f"Upserting {len(junction_rows)} pokemon↔move links...")
-    upsert_batched(supabase, "pokemon_moves", junction_rows, on_conflict="pokemon_id,move_id")
+    print(f"Inserting {len(junction_rows)} pokemon↔move links...")
+    insert_batched(supabase, "pokemon_moves", junction_rows)
     print("Done.\n")
 
     # ------------------------------------------------------------------

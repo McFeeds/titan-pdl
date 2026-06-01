@@ -48,12 +48,31 @@ except ImportError:
 # Config
 # ---------------------------------------------------------------------------
 
-TIERING_FILE          = Path(__file__).parent / "pokemon-tiering.txt"
-MOVES_FILE            = Path(__file__).parent / "important-moves.txt"
-POKEAPI_BASE          = "https://pokeapi.co/api/v2"
-SHOWDOWN_LEARNSETS_URL = "https://play.pokemonshowdown.com/data/learnsets.js"
-REQUEST_DELAY         = 0.25   # seconds between PokeAPI requests
-BATCH_SIZE            = 50     # rows per Supabase upsert
+TIERING_FILE             = Path(__file__).parent / "pokemon-tiering.txt"
+MOVES_FILE               = Path(__file__).parent / "important-moves.txt"
+POKEAPI_BASE             = "https://pokeapi.co/api/v2"
+SHOWDOWN_BASE_URL        = "https://raw.githubusercontent.com/smogon/pokemon-showdown/master"
+SHOWDOWN_LEARNSETS_URL   = f"{SHOWDOWN_BASE_URL}/data/learnsets.ts"
+SHOWDOWN_CHAMPIONS_URL   = f"{SHOWDOWN_BASE_URL}/data/mods/champions/learnsets.ts"
+REQUEST_DELAY            = 0.25   # seconds between PokeAPI requests
+BATCH_SIZE               = 50     # rows per Supabase upsert
+
+# Generation priority: newest first. Each inner list is a group of generation
+# prefixes treated as equivalent (e.g. SwSh / PLA / BDSP all count as "Gen 8").
+# The first group where the Pokemon has at least one move wins; its full set of
+# moves from that generation group is used.  Older generations are only
+# consulted if the Pokemon has no moves at all in newer ones.
+GENERATION_PRIORITY: list[list[str]] = [
+    ["9"],            # Gen 9  – Scarlet / Violet
+    ["8", "8a", "8b"],# Gen 8  – Sword/Shield, Legends: Arceus, BDSP
+    ["7"],            # Gen 7  – Sun/Moon, USUM
+    ["6"],            # Gen 6  – X/Y, ORAS
+    ["5"],            # Gen 5  – Black/White, B2W2
+    ["4"],            # Gen 4  – Diamond/Pearl, Platinum, HGSS
+    ["3"],            # Gen 3  – RSE, FRLG
+    ["2"],            # Gen 2  – Gold/Silver, Crystal
+    ["1"],            # Gen 1  – Red/Blue, Yellow
+]
 
 
 # ---------------------------------------------------------------------------
@@ -101,16 +120,34 @@ def move_name_to_slug(name: str) -> str:
 _api_cache: dict[str, dict | None] = {}
 
 
+def _get_with_retry(url: str, retries: int = 3, timeout: int = 30) -> requests.Response:
+    """GET a URL with exponential-backoff retry on timeout or 5xx errors."""
+    delay = 2.0
+    for attempt in range(retries):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            if resp.status_code < 500:
+                return resp
+        except requests.exceptions.ReadTimeout:
+            pass
+        if attempt < retries - 1:
+            print(f"    [retry {attempt + 1}/{retries - 1}] {url}")
+            time.sleep(delay)
+            delay *= 2
+    # Final attempt — let exceptions propagate
+    return requests.get(url, timeout=timeout)
+
+
 def fetch_pokemon(slug: str) -> dict | None:
     """Fetch /pokemon/{slug}; on 404 falls back to /pokemon-species/{slug} and
     fetches the default variety (handles multi-form Pokemon like Aegislash)."""
     if slug in _api_cache:
         return _api_cache[slug]
 
-    resp = requests.get(f"{POKEAPI_BASE}/pokemon/{slug}", timeout=15)
+    resp = _get_with_retry(f"{POKEAPI_BASE}/pokemon/{slug}")
 
     if resp.status_code == 404:
-        species_resp = requests.get(f"{POKEAPI_BASE}/pokemon-species/{slug}", timeout=15)
+        species_resp = _get_with_retry(f"{POKEAPI_BASE}/pokemon-species/{slug}")
         if species_resp.status_code == 404:
             _api_cache[slug] = None
             return None
@@ -123,7 +160,7 @@ def fetch_pokemon(slug: str) -> dict | None:
             _api_cache[slug] = None
             return None
 
-        resp = requests.get(default_variety["pokemon"]["url"], timeout=15)
+        resp = _get_with_retry(default_variety["pokemon"]["url"])
 
     resp.raise_for_status()
     time.sleep(REQUEST_DELAY)
@@ -197,22 +234,19 @@ def build_placeholder_row(display_name: str, point_value: int) -> dict:
     }
 
 
-def fetch_showdown_learnsets() -> dict:
-    """Fetch and parse Pokemon Showdown's learnset data.
+def _parse_showdown_learnset_file(url: str) -> dict:
+    """Fetch and parse any Showdown learnset TypeScript/JS file.
 
-    Locates the top-level JS object by brace-matching rather than relying on
-    the specific module format (CommonJS/ESM), so it stays robust if Showdown
-    changes their build output.
+    Locates the top-level object by brace-matching so it's robust to CommonJS,
+    ESM, or TypeScript wrapper syntax changes.
     """
-    print("Fetching learnsets from Pokemon Showdown...")
-    resp = requests.get(SHOWDOWN_LEARNSETS_URL, timeout=30)
+    resp = requests.get(url, timeout=30)
     resp.raise_for_status()
     text = resp.text
 
-    # Find the outermost { ... } that contains the learnset data
     start = text.find("{")
     if start == -1:
-        raise ValueError(f"No '{{' found in learnsets response (first 200 chars): {text[:200]!r}")
+        raise ValueError(f"No '{{' found in response from {url} (first 200 chars): {text[:200]!r}")
 
     depth = 0
     end = start
@@ -240,16 +274,43 @@ def fetch_showdown_learnsets() -> dict:
 
     obj_text = text[start : end + 1]
 
-    # Quote unquoted JS identifiers used as object keys
-    obj_text = re.sub(r'([{,]\s*)([A-Za-z_$][\w$]*)(\s*:)', r'\1"\2"\3', obj_text)
+    # Strip TypeScript/JS comments before any other processing.
+    # Block comments first so their content doesn't confuse the line-comment strip.
+    obj_text = re.sub(r'/\*.*?\*/', '', obj_text, flags=re.DOTALL)
+    obj_text = re.sub(r'//[^\n]*', '', obj_text)
 
-    # Remove trailing commas (valid JS, invalid JSON)
+    # Replace JS-only literals that are not valid JSON
+    obj_text = re.sub(r'\bundefined\b', 'null', obj_text)
+
+    # Convert single-quoted strings to double-quoted (JS allows both, JSON requires double).
+    # Handles escaped characters inside the string (e.g. \') before replacing.
+    obj_text = re.sub(r"'((?:[^'\\]|\\.)*)'", r'"\1"', obj_text)
+
+    obj_text = re.sub(r'([{,]\s*)([A-Za-z_$][\w$]*)(\s*:)', r'\1"\2"\3', obj_text)
     obj_text = re.sub(r',(\s*[}\]])', r'\1', obj_text)
 
     try:
         return json.loads(obj_text)
     except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse learnsets JSON: {e}\nFirst 300 chars of extracted object: {obj_text[:300]!r}") from e
+        ctx_start = max(0, e.pos - 120)
+        ctx_end = min(len(obj_text), e.pos + 120)
+        raise ValueError(
+            f"Failed to parse learnsets JSON from {url}: {e}\n"
+            f"Context around char {e.pos}:\n{obj_text[ctx_start:ctx_end]!r}"
+        ) from e
+
+
+def fetch_showdown_learnsets() -> tuple[dict, dict]:
+    """Return (base_learnsets, champions_learnsets) from the Showdown GitHub repo."""
+    print("Fetching base learnsets from Pokemon Showdown...")
+    base = _parse_showdown_learnset_file(SHOWDOWN_LEARNSETS_URL)
+    print(f"  Loaded {len(base)} base learnset entries")
+
+    print("Fetching Champions mod learnsets from Pokemon Showdown...")
+    champions = _parse_showdown_learnset_file(SHOWDOWN_CHAMPIONS_URL)
+    print(f"  Loaded {len(champions)} Champions learnset entries\n")
+
+    return base, champions
 
 
 def _showdown_id(slug: str) -> str:
@@ -257,30 +318,84 @@ def _showdown_id(slug: str) -> str:
     return slug.replace("-", "")
 
 
+def _extract_learnset(entry: dict) -> dict:
+    """Return the flat move→methods dict from a Showdown learnset entry."""
+    if "learnset" in entry:
+        return entry["learnset"]
+    return {k: v for k, v in entry.items() if isinstance(v, list)}
+
+
+def _moves_for_gen_group(learnset: dict, prefixes: list[str]) -> set[str]:
+    """Return all move IDs the Pokemon can learn in a generation group."""
+    return {
+        move for move, methods in learnset.items()
+        if any(
+            any(method.startswith(p) for p in prefixes)
+            for method in methods
+        )
+    }
+
+
+def _moves_by_priority(learnset: dict) -> set[str]:
+    """Return moves for the highest generation this Pokemon appears in.
+
+    Walks GENERATION_PRIORITY from newest to oldest and returns the full
+    move set for the first generation group where the Pokemon has any moves.
+    """
+    for gen_prefixes in GENERATION_PRIORITY:
+        moves = _moves_for_gen_group(learnset, gen_prefixes)
+        if moves:
+            return moves
+    return set()
+
+
+def _resolve_learnset(poke_id: str, api_data: dict, learnset_source: dict) -> tuple[dict, bool]:
+    """Look up a Pokemon's learnset in a given source, falling back to base species for forms."""
+    entry = learnset_source.get(poke_id)
+    if entry:
+        return _extract_learnset(entry), False
+
+    species_name = api_data.get("species", {}).get("name", "")
+    base_id = _showdown_id(species_name)
+    if base_id and base_id != poke_id:
+        base_entry = learnset_source.get(base_id)
+        if base_entry:
+            return _extract_learnset(base_entry), True
+
+    return {}, False
+
+
 def get_learnable_slugs(
-    api_data: dict, showdown_learnsets: dict, move_slugs: set[str]
+    api_data: dict,
+    base_learnsets: dict,
+    champions_learnsets: dict,
+    move_slugs: set[str],
 ) -> tuple[set[str], bool]:
     """Return (learnable_important_move_slugs, used_base_form_fallback).
 
-    Uses Pokemon Showdown learnset data, which is more complete than PokeAPI
-    (e.g. Gengar correctly has Imprison).  Falls back to the base species entry
-    if the form has no learnset of its own (common for megas/regionals).
+    Priority:
+      1. Champions mod learnset — if the Pokemon has an entry, use it.
+      2. Base learnsets with generation priority (Gen 9 → Gen 8 → … → Gen 1).
+    Megas and other forms with no direct entry fall back to the base species
+    in whichever source is being consulted.
     """
-    # Map showdown move IDs back to their PokeAPI slugs for the return value
     showdown_to_slug = {slug.replace("-", ""): slug for slug in move_slugs}
-
     poke_id = _showdown_id(api_data["name"])
-    learnset = showdown_learnsets.get(poke_id, {}).get("learnset", {})
-    used_fallback = False
 
+    # 1. Champions mod
+    learnset, used_fallback = _resolve_learnset(poke_id, api_data, champions_learnsets)
+    if learnset:
+        available = set(learnset.keys())
+        return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, used_fallback
+
+    # 2. Base learnsets with generation-priority filtering
+    learnset, used_fallback = _resolve_learnset(poke_id, api_data, base_learnsets)
     if not learnset:
-        species_name = api_data.get("species", {}).get("name", "")
-        base_id = _showdown_id(species_name)
-        if base_id and base_id != poke_id:
-            learnset = showdown_learnsets.get(base_id, {}).get("learnset", {})
-            used_fallback = bool(learnset)
+        print(f"  [WARN] No Showdown learnset for '{api_data['name']}' (id: {poke_id})")
+        return set(), False
 
-    return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in learnset}, used_fallback
+    available = _moves_by_priority(learnset)
+    return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, used_fallback
 
 
 # ---------------------------------------------------------------------------
@@ -364,8 +479,7 @@ def main() -> None:
     # ------------------------------------------------------------------
     # 2. Fetch Pokemon Showdown learnset data (single request, used for all Pokemon)
     # ------------------------------------------------------------------
-    showdown_learnsets = fetch_showdown_learnsets()
-    print(f"Loaded {len(showdown_learnsets)} learnsets from Pokemon Showdown\n")
+    base_learnsets, champions_learnsets = fetch_showdown_learnsets()
 
     # ------------------------------------------------------------------
     # 3. Fetch each Pokemon from PokeAPI
@@ -381,7 +495,7 @@ def main() -> None:
 
         if api_data is not None:
             row = build_pokemon_row_from_api(api_data, display_name, point_value)
-            learnable, used_fallback = get_learnable_slugs(api_data, showdown_learnsets, move_slugs)
+            learnable, used_fallback = get_learnable_slugs(api_data, base_learnsets, champions_learnsets, move_slugs)
             learnable_map[slug] = learnable
             label = "FALLBACK    " if used_fallback else "OK          "
             print(f"  {label}{display_name}" + (" (moves from base form)" if used_fallback else ""))

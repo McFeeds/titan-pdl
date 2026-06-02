@@ -6,14 +6,14 @@ export default async function AdminRostersPage() {
 
   const [
     { data: seasons },
-    { data: conferences },
     { data: teams },
+    { data: teamSeasons },
     { data: pokemon },
     { data: roster },
   ] = await Promise.all([
     supabase.from("seasons").select("id, name").order("created_at", { ascending: false }),
-    supabase.from("conferences").select("id, name").order("name"),
-    supabase.from("teams").select("id, team_name, conference_id").order("team_name"),
+    supabase.from("teams").select("id, team_name").order("team_name"),
+    supabase.from("team_seasons").select("team_id, season_id, conference_id"),
     supabase.from("pokemon").select("id, name").order("name"),
     supabase.from("rosters").select("pokemon_id, season_id, conference_id, team_id, pokemon(name)"),
   ]);
@@ -23,8 +23,8 @@ export default async function AdminRostersPage() {
       <h1 className="text-2xl font-bold text-white mb-6">Rosters</h1>
       <RosterManager
         seasons={seasons ?? []}
-        conferences={conferences ?? []}
         teams={teams ?? []}
+        teamSeasons={teamSeasons ?? []}
         pokemon={pokemon ?? []}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         roster={(roster ?? []) as any}

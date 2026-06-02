@@ -3,22 +3,41 @@
 import { useActionState, useState, useTransition } from "react";
 import { addTeamMember, updateTeamMember, removeTeamMember } from "./actions";
 
-type Member = { discord_id: string; showdown_name: string | null };
+type Member = {
+  id: number;
+  discord_id: string;
+  showdown_name: string | null;
+  role: string;
+};
 
 const inputCls =
   "px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm";
+const selectCls =
+  "px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
+
+const ROLES = [
+  { value: "owner", label: "Owner" },
+  { value: "co_owner", label: "Co-Owner" },
+  { value: "manager", label: "Manager" },
+];
+
+function roleLabel(role: string) {
+  return ROLES.find((r) => r.value === role)?.label ?? role;
+}
 
 function MemberRow({ member, teamId }: { member: Member; teamId: number }) {
   const [editing, setEditing] = useState(false);
   const [showdownValue, setShowdownValue] = useState(member.showdown_name ?? "");
+  const [roleValue, setRoleValue] = useState(member.role);
   const [savePending, startSave] = useTransition();
   const [removePending, startRemove] = useTransition();
 
   function handleSave() {
     const fd = new FormData();
+    fd.append("id", member.id.toString());
     fd.append("team_id", teamId.toString());
-    fd.append("discord_id", member.discord_id);
     fd.append("showdown_name", showdownValue);
+    fd.append("role", roleValue);
     startSave(async () => {
       await updateTeamMember(fd);
       setEditing(false);
@@ -27,8 +46,8 @@ function MemberRow({ member, teamId }: { member: Member; teamId: number }) {
 
   function handleRemove() {
     const fd = new FormData();
+    fd.append("id", member.id.toString());
     fd.append("team_id", teamId.toString());
-    fd.append("discord_id", member.discord_id);
     startRemove(async () => {
       await removeTeamMember(fd);
     });
@@ -51,6 +70,15 @@ function MemberRow({ member, teamId }: { member: Member; teamId: number }) {
             autoFocus
             className={`${inputCls} flex-1`}
           />
+          <select
+            value={roleValue}
+            onChange={(e) => setRoleValue(e.target.value)}
+            className={selectCls}
+          >
+            {ROLES.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
           <button
             onClick={handleSave}
             disabled={savePending}
@@ -74,6 +102,10 @@ function MemberRow({ member, teamId }: { member: Member; teamId: number }) {
         </button>
       )}
 
+      {!editing && (
+        <span className="text-xs text-gray-500 shrink-0">{roleLabel(member.role)}</span>
+      )}
+
       <button
         onClick={handleRemove}
         disabled={removePending}
@@ -87,9 +119,11 @@ function MemberRow({ member, teamId }: { member: Member; teamId: number }) {
 
 export default function TeamMembersManager({
   teamId,
+  seasonId,
   members,
 }: {
   teamId: number;
+  seasonId: number;
   members: Member[];
 }) {
   const [state, formAction, pending] = useActionState(addTeamMember, null);
@@ -103,24 +137,30 @@ export default function TeamMembersManager({
       ) : (
         <ul className="flex flex-col gap-1 mb-6">
           {members.map((m) => (
-            <MemberRow key={m.discord_id} member={m} teamId={teamId} />
+            <MemberRow key={m.id} member={m} teamId={teamId} />
           ))}
         </ul>
       )}
 
       <form action={formAction} className="flex flex-col gap-2">
         <input type="hidden" name="team_id" value={teamId} />
-        <div className="flex items-start gap-2">
+        <input type="hidden" name="season_id" value={seasonId} />
+        <div className="flex items-start gap-2 flex-wrap">
           <input
             name="discord_id"
             placeholder="Discord username"
-            className={`${inputCls} w-44`}
+            className={`${inputCls} w-40`}
           />
           <input
             name="showdown_name"
             placeholder="Showdown name"
-            className={`${inputCls} w-44`}
+            className={`${inputCls} w-40`}
           />
+          <select name="role" className={`${selectCls} w-32`} defaultValue="owner">
+            {ROLES.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
           <button
             type="submit"
             disabled={pending}

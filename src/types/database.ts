@@ -52,14 +52,52 @@ export interface Group {
 
 export interface Team {
   id: number;
-  discord_id: string;
-  showdown_name: string;
   team_name: string;
   logo_url: string | null;
-  conference_id: number | null;
+  created_at: string;
+}
+
+export interface TeamSeason {
+  team_id: number;
+  season_id: number;
+  conference_id: number;
   group_id: number | null;
   draft_position: number | null;
-  created_at: string;
+}
+
+export interface TeamMember {
+  id: number;
+  team_id: number;
+  season_id: number;
+  discord_id: string;
+  showdown_name: string | null;
+  role: "owner" | "co_owner" | "manager";
+}
+
+export interface Match {
+  id: number;
+  season_id: number;
+  week_number: number;
+  home_team_id: number;
+  away_team_id: number;
+  played_at: string | null;
+}
+
+export interface MatchGame {
+  id: number;
+  match_id: number;
+  game_number: number;
+  winner_team_id: number | null;
+  replay_url: string | null;
+}
+
+export interface MatchGamePokemon {
+  id: number;
+  match_game_id: number;
+  team_id: number;
+  pokemon_id: number;
+  kills: number;
+  deaths: number;
 }
 
 export interface Roster {
@@ -108,8 +146,6 @@ export interface RosterEntry extends Roster {
 }
 
 export interface TeamWithRoster extends Team {
-  conference: Conference | null;
-  group: Group | null;
   roster: RosterEntry[];
 }
 

@@ -8,6 +8,7 @@ const links = [
   { href: "/admin/pokemon", label: "Pokémon" },
   { href: "/admin/seasons", label: "Seasons" },
   { href: "/admin/rosters", label: "Rosters" },
+  { href: "/admin/matches", label: "Matches" },
 ];
 
 export default function AdminSidebar() {

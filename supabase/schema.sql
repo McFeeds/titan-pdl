@@ -90,18 +90,10 @@ CREATE INDEX idx_groups_conference ON groups (conference_id);
 -- ------------------------------------------------------------
 CREATE TABLE teams (
   id             SERIAL      PRIMARY KEY,
-  discord_id     TEXT        NOT NULL UNIQUE,
-  showdown_name  TEXT        NOT NULL,
   team_name      TEXT        NOT NULL,
   logo_url       TEXT,
-  conference_id  INTEGER     REFERENCES conferences(id),
-  group_id       INTEGER     REFERENCES groups(id),
-  draft_position INTEGER,
   created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
-CREATE INDEX idx_teams_conference ON teams (conference_id);
-CREATE INDEX idx_teams_group      ON teams (group_id);
 
 
 -- ------------------------------------------------------------
@@ -170,6 +162,146 @@ CREATE INDEX idx_tx_items_transaction ON transaction_items (transaction_id);
 CREATE INDEX idx_tx_items_team        ON transaction_items (team_id);
 
 
+-- ------------------------------------------------------------
+-- TEAM SEASONS  (season-specific placement — conference, group, draft order)
+-- Replaces conference_id/group_id/draft_position on teams so those
+-- attributes can differ across seasons.
+-- ------------------------------------------------------------
+CREATE TABLE team_seasons (
+  team_id        INTEGER NOT NULL REFERENCES teams(id),
+  season_id      INTEGER NOT NULL REFERENCES seasons(id),
+  conference_id  INTEGER NOT NULL REFERENCES conferences(id),
+  group_id       INTEGER REFERENCES groups(id),
+  draft_position INTEGER,
+  PRIMARY KEY (team_id, season_id)
+);
+
+CREATE INDEX idx_team_seasons_season ON team_seasons (season_id);
+CREATE INDEX idx_team_seasons_conf   ON team_seasons (season_id, conference_id);
+
+
+-- ------------------------------------------------------------
+-- TEAM MEMBERS  (human players per team per season)
+-- ------------------------------------------------------------
+CREATE TABLE team_members (
+  id            SERIAL  PRIMARY KEY,
+  team_id       INTEGER NOT NULL REFERENCES teams(id),
+  season_id     INTEGER NOT NULL REFERENCES seasons(id),
+  discord_id    TEXT    NOT NULL,
+  showdown_name TEXT,
+  role          TEXT    NOT NULL CHECK (role IN ('owner', 'co_owner', 'manager')),
+  UNIQUE (team_id, season_id, discord_id)
+);
+
+CREATE INDEX idx_team_members_team_season ON team_members (team_id, season_id);
+
+
+-- ------------------------------------------------------------
+-- MATCHES  (one row per weekly matchup)
+-- ------------------------------------------------------------
+CREATE TABLE matches (
+  id           SERIAL      PRIMARY KEY,
+  season_id    INTEGER     NOT NULL REFERENCES seasons(id),
+  week_number  INTEGER     NOT NULL,
+  home_team_id INTEGER     NOT NULL REFERENCES teams(id),
+  away_team_id INTEGER     NOT NULL REFERENCES teams(id),
+  played_at    TIMESTAMPTZ,
+  UNIQUE (season_id, week_number, home_team_id, away_team_id)
+);
+
+CREATE INDEX idx_matches_season      ON matches (season_id);
+CREATE INDEX idx_matches_season_week ON matches (season_id, week_number);
+CREATE INDEX idx_matches_home_team   ON matches (home_team_id);
+CREATE INDEX idx_matches_away_team   ON matches (away_team_id);
+
+
+-- ------------------------------------------------------------
+-- MATCH GAMES  (individual games within a BO3, up to 3)
+-- ------------------------------------------------------------
+CREATE TABLE match_games (
+  id             SERIAL  PRIMARY KEY,
+  match_id       INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  game_number    INTEGER NOT NULL CHECK (game_number BETWEEN 1 AND 3),
+  winner_team_id INTEGER REFERENCES teams(id),
+  replay_url     TEXT,
+  UNIQUE (match_id, game_number)
+);
+
+CREATE INDEX idx_match_games_match ON match_games (match_id);
+
+
+-- ------------------------------------------------------------
+-- MATCH GAME POKEMON  (pokemon brought per team per game + per-game stats)
+-- Row existence implies the pokemon was brought to that game.
+-- ------------------------------------------------------------
+CREATE TABLE match_game_pokemon (
+  id            SERIAL  PRIMARY KEY,
+  match_game_id INTEGER NOT NULL REFERENCES match_games(id) ON DELETE CASCADE,
+  team_id       INTEGER NOT NULL REFERENCES teams(id),
+  pokemon_id    INTEGER NOT NULL REFERENCES pokemon(id),
+  kills         INTEGER NOT NULL DEFAULT 0,
+  deaths        INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (match_game_id, team_id, pokemon_id)
+);
+
+CREATE INDEX idx_mgp_game    ON match_game_pokemon (match_game_id);
+CREATE INDEX idx_mgp_team    ON match_game_pokemon (team_id);
+CREATE INDEX idx_mgp_pokemon ON match_game_pokemon (pokemon_id);
+
+
+-- ============================================================
+-- VIEWS  (derived stats — no redundant storage)
+-- ============================================================
+
+-- Home/away game counts per match, derived from match_games.
+CREATE VIEW match_results AS
+SELECT
+  m.id            AS match_id,
+  m.season_id,
+  m.week_number,
+  m.home_team_id,
+  m.away_team_id,
+  COUNT(*) FILTER (WHERE mg.winner_team_id = m.home_team_id) AS home_games_won,
+  COUNT(*) FILTER (WHERE mg.winner_team_id = m.away_team_id) AS away_games_won
+FROM matches m
+LEFT JOIN match_games mg ON mg.match_id = m.id
+GROUP BY m.id, m.season_id, m.week_number, m.home_team_id, m.away_team_id;
+
+
+-- W/L record per team per season. A match is won by taking 2+ games in the BO3.
+CREATE VIEW team_records AS
+WITH sides AS (
+  SELECT season_id, home_team_id AS team_id, (home_games_won >= 2) AS won
+  FROM match_results
+  UNION ALL
+  SELECT season_id, away_team_id AS team_id, (away_games_won >= 2) AS won
+  FROM match_results
+)
+SELECT
+  season_id,
+  team_id,
+  COUNT(*) FILTER (WHERE won)      AS wins,
+  COUNT(*) FILTER (WHERE NOT won)  AS losses
+FROM sides
+GROUP BY season_id, team_id;
+
+
+-- Aggregated pokemon stats per team per season.
+-- `brought` = number of individual games the pokemon appeared in.
+CREATE VIEW pokemon_season_stats AS
+SELECT
+  m.season_id,
+  mgp.team_id,
+  mgp.pokemon_id,
+  COUNT(*)        AS brought,
+  SUM(mgp.kills)  AS kills,
+  SUM(mgp.deaths) AS deaths
+FROM match_game_pokemon mgp
+JOIN match_games mg ON mg.id = mgp.match_game_id
+JOIN matches     m  ON m.id  = mg.match_id
+GROUP BY m.season_id, mgp.team_id, mgp.pokemon_id;
+
+
 -- ============================================================
 -- ROW LEVEL SECURITY
 -- All tables are publicly readable (league data is open).
@@ -186,17 +318,27 @@ ALTER TABLE groups           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rosters          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE draft_log        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE transactions     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE transaction_items ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transactions        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE transaction_items   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE team_seasons        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE team_members        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE matches             ENABLE ROW LEVEL SECURITY;
+ALTER TABLE match_games         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE match_game_pokemon  ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "Public read" ON seasons           FOR SELECT USING (true);
-CREATE POLICY "Public read" ON pokemon           FOR SELECT USING (true);
-CREATE POLICY "Public read" ON important_moves   FOR SELECT USING (true);
-CREATE POLICY "Public read" ON pokemon_moves     FOR SELECT USING (true);
-CREATE POLICY "Public read" ON conferences       FOR SELECT USING (true);
-CREATE POLICY "Public read" ON groups            FOR SELECT USING (true);
-CREATE POLICY "Public read" ON teams             FOR SELECT USING (true);
-CREATE POLICY "Public read" ON rosters           FOR SELECT USING (true);
-CREATE POLICY "Public read" ON draft_log         FOR SELECT USING (true);
-CREATE POLICY "Public read" ON transactions      FOR SELECT USING (true);
-CREATE POLICY "Public read" ON transaction_items FOR SELECT USING (true);
+CREATE POLICY "Public read" ON seasons            FOR SELECT USING (true);
+CREATE POLICY "Public read" ON pokemon            FOR SELECT USING (true);
+CREATE POLICY "Public read" ON important_moves    FOR SELECT USING (true);
+CREATE POLICY "Public read" ON pokemon_moves      FOR SELECT USING (true);
+CREATE POLICY "Public read" ON conferences        FOR SELECT USING (true);
+CREATE POLICY "Public read" ON groups             FOR SELECT USING (true);
+CREATE POLICY "Public read" ON teams              FOR SELECT USING (true);
+CREATE POLICY "Public read" ON rosters            FOR SELECT USING (true);
+CREATE POLICY "Public read" ON draft_log          FOR SELECT USING (true);
+CREATE POLICY "Public read" ON transactions       FOR SELECT USING (true);
+CREATE POLICY "Public read" ON transaction_items  FOR SELECT USING (true);
+CREATE POLICY "Public read" ON team_seasons       FOR SELECT USING (true);
+CREATE POLICY "Public read" ON team_members       FOR SELECT USING (true);
+CREATE POLICY "Public read" ON matches            FOR SELECT USING (true);
+CREATE POLICY "Public read" ON match_games        FOR SELECT USING (true);
+CREATE POLICY "Public read" ON match_game_pokemon FOR SELECT USING (true);

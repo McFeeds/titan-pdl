@@ -7,8 +7,8 @@ const selectCls =
   "px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm";
 
 type Season = { id: number; name: string };
-type Conference = { id: number; name: string };
-type Team = { id: number; team_name: string; conference_id: number | null };
+type Team = { id: number; team_name: string };
+type TeamSeason = { team_id: number; season_id: number; conference_id: number };
 type Pokemon = { id: number; name: string };
 type RosterEntry = {
   pokemon_id: number;
@@ -20,25 +20,26 @@ type RosterEntry = {
 
 type Props = {
   seasons: Season[];
-  conferences: Conference[];
   teams: Team[];
+  teamSeasons: TeamSeason[];
   pokemon: Pokemon[];
   roster: RosterEntry[];
 };
 
-export default function RosterManager({ seasons, conferences, teams, pokemon, roster }: Props) {
+export default function RosterManager({ seasons, teams, teamSeasons, pokemon, roster }: Props) {
   const [seasonId, setSeasonId] = useState("");
   const [teamId, setTeamId] = useState("");
   const [state, formAction, pending] = useActionState(addRosterEntry, null);
   const [removePending, startRemove] = useTransition();
 
-  const selectedTeam = teams.find((t) => t.id === Number(teamId));
-  const conferenceId = selectedTeam?.conference_id ?? null;
+  // Derive conference_id from team_seasons for the selected team+season
+  const teamSeason = teamSeasons.find(
+    (ts) => ts.team_id === Number(teamId) && ts.season_id === Number(seasonId)
+  );
+  const conferenceId = teamSeason?.conference_id ?? null;
 
   const currentRoster = roster.filter(
-    (r) =>
-      r.season_id === Number(seasonId) &&
-      r.team_id === Number(teamId)
+    (r) => r.season_id === Number(seasonId) && r.team_id === Number(teamId)
   );
 
   const rosterPokemonIds = new Set(currentRoster.map((r) => r.pokemon_id));
@@ -60,7 +61,7 @@ export default function RosterManager({ seasons, conferences, teams, pokemon, ro
       <div className="flex items-center gap-4 flex-wrap">
         <div>
           <label className="block text-xs text-gray-400 mb-1">Season</label>
-          <select className={selectCls} value={seasonId} onChange={(e) => setSeasonId(e.target.value)}>
+          <select className={selectCls} value={seasonId} onChange={(e) => { setSeasonId(e.target.value); setTeamId(""); }}>
             <option value="">— Select —</option>
             {seasons.map((s) => (
               <option key={s.id} value={s.id}>{s.name}</option>
@@ -69,7 +70,7 @@ export default function RosterManager({ seasons, conferences, teams, pokemon, ro
         </div>
         <div>
           <label className="block text-xs text-gray-400 mb-1">Team</label>
-          <select className={selectCls} value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+          <select className={selectCls} value={teamId} onChange={(e) => setTeamId(e.target.value)} disabled={!seasonId}>
             <option value="">— Select —</option>
             {teams.map((t) => (
               <option key={t.id} value={t.id}>{t.team_name}</option>
@@ -137,7 +138,7 @@ export default function RosterManager({ seasons, conferences, teams, pokemon, ro
               </button>
               {!conferenceId && (
                 <p className="text-yellow-500 text-xs self-center">
-                  Team has no conference assigned.
+                  Team has no conference assigned for this season.
                 </p>
               )}
             </form>

@@ -1,40 +1,24 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState } from "react";
 
 const inputCls =
   "w-full px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500";
-const selectCls =
-  "w-full px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 [&>option]:bg-[#0d0d1f]";
 const labelCls = "block text-sm font-medium text-gray-300 mb-1";
 
-type Conference = { id: number; name: string };
-type Group = { id: number; name: string; conference_id: number };
 type Team = {
   id: number;
   team_name: string;
   logo_url: string | null;
-  conference_id: number | null;
-  group_id: number | null;
-  draft_position: number | null;
 };
 
 type Props = {
   action: (_prevState: { error?: string } | null, formData: FormData) => Promise<{ error?: string } | null>;
-  conferences: Conference[];
-  groups: Group[];
   team?: Team;
 };
 
-export default function TeamForm({ action, conferences, groups, team }: Props) {
+export default function TeamForm({ action, team }: Props) {
   const [state, formAction, pending] = useActionState(action, null);
-  const [selectedConference, setSelectedConference] = useState(
-    team?.conference_id?.toString() ?? ""
-  );
-
-  const filteredGroups = selectedConference
-    ? groups.filter((g) => g.conference_id === Number(selectedConference))
-    : groups;
 
   return (
     <form action={formAction} className="max-w-lg flex flex-col gap-5">
@@ -62,50 +46,6 @@ export default function TeamForm({ action, conferences, groups, team }: Props) {
           name="logo_url"
           defaultValue={team?.logo_url ?? ""}
           placeholder="https://i.imgur.com/..."
-          className={inputCls}
-        />
-      </div>
-
-      <div>
-        <label className={labelCls}>Conference</label>
-        <select
-          name="conference_id"
-          value={selectedConference}
-          onChange={(e) => setSelectedConference(e.target.value)}
-          className={selectCls}
-        >
-          <option value="">— None —</option>
-          {conferences.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className={labelCls}>Group</label>
-        <select
-          name="group_id"
-          defaultValue={team?.group_id?.toString() ?? ""}
-          className={selectCls}
-        >
-          <option value="">— None —</option>
-          {filteredGroups.map((g) => (
-            <option key={g.id} value={g.id}>
-              {g.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className={labelCls}>Draft Position</label>
-        <input
-          name="draft_position"
-          type="number"
-          defaultValue={team?.draft_position?.toString() ?? ""}
-          placeholder="1"
           className={inputCls}
         />
       </div>

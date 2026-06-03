@@ -49,12 +49,20 @@ export default async function DraftPoolsPage() {
     if (discordUsername) {
       const { data: membership } = await supabase
         .from("team_members")
-        .select("teams(conference_id)")
+        .select("team_id")
         .ilike("discord_id", discordUsername)
         .limit(1)
         .maybeSingle();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      userConferenceId = (membership?.teams as any)?.conference_id ?? null;
+
+      if (membership?.team_id && activeSeason?.id) {
+        const { data: placement } = await supabase
+          .from("team_seasons")
+          .select("conference_id")
+          .eq("team_id", membership.team_id)
+          .eq("season_id", activeSeason.id)
+          .maybeSingle();
+        userConferenceId = placement?.conference_id ?? null;
+      }
     }
   }
 

@@ -399,14 +399,6 @@ export default function DraftBoard({
           />
         </div>
 
-        {/* Live indicator */}
-        {activeSeasonId && (
-          <div className="flex items-center gap-2 mb-6 text-xs text-gray-500">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />
-            Live draft updates enabled
-          </div>
-        )}
-
         {/* No results */}
         {noResults && (
           <div className="text-center py-20 text-gray-500 text-sm">

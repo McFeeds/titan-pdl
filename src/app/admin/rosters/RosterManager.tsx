@@ -4,7 +4,7 @@ import { useActionState, useState, useTransition } from "react";
 import { addRosterEntry, removeRosterEntry } from "./actions";
 
 const selectCls =
-  "px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm";
+  "px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
 
 type Season = { id: number; name: string };
 type Team = { id: number; team_name: string };

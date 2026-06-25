@@ -105,6 +105,7 @@ export interface Roster {
   conference_id: number;
   season_id: number;
   team_id: number;
+  nickname: string | null;
 }
 
 export interface DraftLog {
@@ -139,6 +140,10 @@ export interface TransactionItem {
 
 export interface PokemonWithMoves extends Pokemon {
   moves: ImportantMove[];
+}
+
+export interface RosterPokemon extends Pokemon {
+  nickname: string | null;
 }
 
 export interface RosterEntry extends Roster {

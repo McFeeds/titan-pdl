@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { typeColor } from "@/lib/pokemon-types";
-import type { Pokemon } from "@/types/database";
+import type { Pokemon, RosterPokemon } from "@/types/database";
+import { updateRosterNickname } from "./actions";
 
 // --- Types ---
 
@@ -27,7 +28,8 @@ interface ScheduleEntry {
 interface Props {
   team: { id: number; team_name: string; logo_url: string | null };
   teamId: number;
-  roster: Pokemon[];
+  seasonId: number;
+  roster: RosterPokemon[];
   schedule: ScheduleEntry[];
   pokemonStats: PokemonStat[];
   totalGamesPlayed: number;
@@ -91,11 +93,62 @@ function SectionHeading({ label }: { label: string }) {
 
 // --- Pokemon card for the roster grid ---
 
-function PokemonCard({ pokemon }: { pokemon: Pokemon }) {
+function PokemonCard({ pokemon, seasonId }: { pokemon: RosterPokemon; seasonId: number }) {
   const [attempt, setAttempt] = useState<"large" | "small" | "ball">("large");
+  const [editing, setEditing] = useState(false);
+  const [inputValue, setInputValue] = useState(pokemon.nickname ?? "");
+  const [displayedNickname, setDisplayedNickname] = useState<string | null>(pokemon.nickname);
+  const [saving, setSaving] = useState(false);
+
+  async function handleSave() {
+    const trimmed = inputValue.trim() || null;
+    if (trimmed === displayedNickname) { setEditing(false); return; }
+    setSaving(true);
+    const { error } = await updateRosterNickname(pokemon.id, seasonId, trimmed);
+    setSaving(false);
+    if (!error) {
+      setDisplayedNickname(trimmed);
+      setEditing(false);
+    } else {
+      setInputValue(displayedNickname ?? "");
+      setEditing(false);
+    }
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") handleSave();
+    if (e.key === "Escape") { setInputValue(displayedNickname ?? ""); setEditing(false); }
+  }
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl overflow-hidden flex flex-col">
+      {/* Nickname slot */}
+      <div className="px-2 pt-1.5 h-[22px] flex items-center justify-center">
+        {editing ? (
+          <input
+            autoFocus
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            onBlur={handleSave}
+            onKeyDown={handleKeyDown}
+            className="w-full text-[10px] text-center bg-white/10 text-indigo-300 rounded px-1 outline-none border border-indigo-500/50 font-semibold leading-none"
+            placeholder="Nickname…"
+            maxLength={20}
+            disabled={saving}
+          />
+        ) : (
+          <button
+            onClick={() => { setInputValue(displayedNickname ?? ""); setEditing(true); }}
+            className={`text-[10px] font-semibold truncate w-full text-center transition-colors ${
+              displayedNickname
+                ? "text-indigo-300 hover:text-indigo-200"
+                : "text-transparent hover:text-gray-600"
+            }`}
+          >
+            {displayedNickname ?? "nickname…"}
+          </button>
+        )}
+      </div>
       <div className="h-36 flex items-center justify-center p-2 overflow-hidden">
         {pokemon.dex_number && attempt !== "ball" ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -360,6 +413,7 @@ function PokemonMiniSprite({ pokemon }: { pokemon: Pokemon }) {
 
 export default function MyTeamView({
   team,
+  seasonId,
   roster,
   schedule,
   pokemonStats,
@@ -405,7 +459,7 @@ export default function MyTeamView({
         ) : (
           <div className="grid grid-cols-6 gap-3">
             {roster.map((p) => (
-              <PokemonCard key={p.id} pokemon={p} />
+              <PokemonCard key={p.id} pokemon={p} seasonId={seasonId} />
             ))}
           </div>
         )}

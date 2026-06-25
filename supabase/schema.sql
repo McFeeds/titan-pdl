@@ -105,6 +105,7 @@ CREATE TABLE rosters (
   conference_id INTEGER NOT NULL REFERENCES conferences(id),
   season_id     INTEGER NOT NULL REFERENCES seasons(id),
   team_id       INTEGER NOT NULL REFERENCES teams(id),
+  nickname      TEXT,
   PRIMARY KEY (pokemon_id, conference_id, season_id)
 );
 

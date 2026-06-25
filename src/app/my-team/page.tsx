@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import type { RosterPokemon } from "@/types/database";
 import MyTeamView from "./MyTeamView";
 
 export const metadata = { title: "My Team | Titan PDL" };
@@ -71,7 +72,7 @@ export default async function MyTeamPage() {
 
     supabase
       .from("rosters")
-      .select("pokemon_id, pokemon(id, dex_number, name, type_1, type_2, ability_1, ability_2, hidden_ability, hp, atk, def, spa, spd, spe, point_value)")
+      .select("pokemon_id, nickname, pokemon(id, dex_number, name, type_1, type_2, ability_1, ability_2, hidden_ability, hp, atk, def, spa, spd, spe, point_value)")
       .eq("team_id", teamId)
       .eq("season_id", activeSeason.id)
       .order("pokemon_id"),
@@ -111,9 +112,9 @@ export default async function MyTeamPage() {
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
 
-  // Build roster array
-  const roster = (rawRoster ?? [])
-    .map((r: any) => r.pokemon)
+  // Build roster array, merging nickname from the roster row onto the pokemon
+  const roster: RosterPokemon[] = (rawRoster ?? [])
+    .map((r: any) => r.pokemon ? { ...r.pokemon, nickname: r.nickname ?? null } : null)
     .filter(Boolean);
 
   // Compute total individual games played by the team from the schedule data
@@ -153,6 +154,7 @@ export default async function MyTeamPage() {
     <MyTeamView
       team={teamData!}
       teamId={teamId}
+      seasonId={activeSeason.id}
       roster={roster}
       schedule={schedule}
       pokemonStats={pokemonStats ?? []}

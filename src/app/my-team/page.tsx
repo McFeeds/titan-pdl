@@ -56,13 +56,12 @@ export default async function MyTeamPage() {
 
   const teamId = membership.team_id;
 
-  // Parallel fetch: team info, roster, matches+games, pokemon stats, team record
+  // Parallel fetch: team info, roster, matches+games, pokemon stats
   const [
     { data: teamData },
     { data: rawRoster },
     { data: rawMatches },
     { data: pokemonStats },
-    { data: teamRecord },
   ] = await Promise.all([
     supabase
       .from("teams")
@@ -89,13 +88,6 @@ export default async function MyTeamPage() {
       .select("pokemon_id, brought, kills, deaths")
       .eq("team_id", teamId)
       .eq("season_id", activeSeason.id),
-
-    supabase
-      .from("team_records")
-      .select("wins, losses")
-      .eq("team_id", teamId)
-      .eq("season_id", activeSeason.id)
-      .maybeSingle(),
   ]);
 
   // Collect opponent team IDs and fetch them in one query
@@ -165,7 +157,10 @@ export default async function MyTeamPage() {
       schedule={schedule}
       pokemonStats={pokemonStats ?? []}
       totalGamesPlayed={totalGamesPlayed}
-      record={{ wins: teamRecord?.wins ?? 0, losses: teamRecord?.losses ?? 0 }}
+      record={{
+          wins: schedule.filter((e) => e.my_games_won >= 2).length,
+          losses: schedule.filter((e) => e.opp_games_won >= 2).length,
+        }}
     />
   );
 }

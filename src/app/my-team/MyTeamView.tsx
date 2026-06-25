@@ -137,7 +137,6 @@ function ScheduleTable({ schedule }: { schedule: ScheduleEntry[] }) {
         <thead>
           <tr className="border-b border-white/10 bg-white/[0.03]">
             <th className="px-4 py-2.5 text-left text-[10px] text-gray-500 font-bold uppercase tracking-wider w-16">Wk</th>
-            <th className="px-2 py-2.5 text-[10px] text-gray-500 font-bold uppercase tracking-wider w-12" />
             <th className="px-3 py-2.5 text-left text-[10px] text-gray-500 font-bold uppercase tracking-wider">Opponent</th>
             <th className="px-4 py-2.5 text-center text-[10px] text-gray-500 font-bold uppercase tracking-wider w-24">Result</th>
           </tr>
@@ -156,19 +155,6 @@ function ScheduleTable({ schedule }: { schedule: ScheduleEntry[] }) {
                 {/* Week */}
                 <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">
                   {entry.week_number}
-                </td>
-
-                {/* Home / Away badge */}
-                <td className="px-2 py-2.5">
-                  <span
-                    className={`text-[9px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider ${
-                      entry.is_home
-                        ? "bg-indigo-500/20 text-indigo-400"
-                        : "bg-white/5 text-gray-500"
-                    }`}
-                  >
-                    {entry.is_home ? "H" : "A"}
-                  </span>
                 </td>
 
                 {/* Opponent */}
@@ -428,7 +414,7 @@ export default function MyTeamView({
       {/* Schedule + Stats tables */}
       <div className="flex gap-6 items-start">
         {/* Schedule */}
-        <div className="w-[420px] shrink-0">
+        <div className="flex-1 min-w-0">
           <SectionHeading label="Schedule" />
           <ScheduleTable schedule={schedule} />
         </div>

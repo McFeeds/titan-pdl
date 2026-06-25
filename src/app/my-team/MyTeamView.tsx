@@ -132,7 +132,7 @@ function ScheduleTable({ schedule }: { schedule: ScheduleEntry[] }) {
   }
 
   return (
-    <div className="rounded-xl border border-white/10 overflow-hidden">
+    <div className="rounded-xl border border-white/10 overflow-hidden flex-1">
       <table className="w-full text-sm border-collapse">
         <thead>
           <tr className="border-b border-white/10 bg-white/[0.03]">
@@ -412,9 +412,9 @@ export default function MyTeamView({
       </section>
 
       {/* Schedule + Stats tables */}
-      <div className="flex gap-6 items-start">
+      <div className="flex gap-6">
         {/* Schedule */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 flex flex-col">
           <SectionHeading label="Schedule" />
           <ScheduleTable schedule={schedule} />
         </div>

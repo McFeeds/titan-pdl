@@ -65,11 +65,12 @@ export function parseShowdownLog(logText: string): ParsedGameResult {
 
     switch (cmd) {
       case "player": {
-        // |player|p1|username|avatar|
+        // |player|p1|username|avatar|  (duplicate/empty lines can appear — first non-empty wins)
         const slot = parts[2];
         const username = parts[3];
-        if (slot === "p1") result.p1Username = username;
-        if (slot === "p2") result.p2Username = username;
+        if (!username) break;
+        if (slot === "p1" && !result.p1Username) result.p1Username = username;
+        if (slot === "p2" && !result.p2Username) result.p2Username = username;
         break;
       }
 

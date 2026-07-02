@@ -1,0 +1,65 @@
+	Red				Blue		Gold				Silver	
+1	San Antonio Spoinks	Raging Regis	San Antonio Spoinks	Turtwig's Tax Evaders	Pengu's Allegiant Poketmons	Turtwig's Tax Evaders	Strictttttttt's Ttttttttttteam 	Ardougne Splash Squad	Strictttttttt's Ttttttttttteam 	Maj0r Mudkip	Michigan Moshers	Maj0r Mudkip
+1	Dragonite's Darlings	 Varrock Volcaronas	Dragonite's Darlings	Kentucky Crobats	Killerfox’s Rare Candies	Kentucky Crobats	Sootopolis Sableyes	Philadelphia Phanpys	Sootopolis Sableyes	Eqqcadrills 	Cherrim Coke II	Eqqcadrills 
+1	Smeargle Wizard Money Gang	Definitely Not Moist Esports	Smeargle Wizard Money Gang	The Gardevoir Guardians	El Kec Kecleons	The Gardevoir Guardians	Paldean Porygons	Water's Woopers	Paldean Porygons	Sanserino Sandiles	Syracuse Stormclouds	Sanserino Sandiles
+1	Juuling Jumpluffs	McFeeds Mareeps	Juuling Jumpluffs	Fortress Forretress	Alolan Raichu Defense Force	Fortress Forretress	Easton's Starmies	Relic Castle Royals	Easton's Starmies	Big Booty Bronzongs	Cheongseolmo's Skwovets	Big Booty Bronzongs
+1												
+1												
+1												
+1												
+2	San Antonio Spoinks	 Varrock Volcaronas	San Antonio Spoinks	Kentucky Crobats	Pengu's Allegiant Poketmons	Kentucky Crobats	Strictttttttt's Ttttttttttteam 	Philadelphia Phanpys	Strictttttttt's Ttttttttttteam 	Eqqcadrills 	Michigan Moshers	Eqqcadrills 
+2	Dragonite's Darlings	Definitely Not Moist Esports	Dragonite's Darlings	The Gardevoir Guardians	Killerfox’s Rare Candies	The Gardevoir Guardians	Sootopolis Sableyes	Water's Woopers	Sootopolis Sableyes	Sanserino Sandiles	Cherrim Coke II	Sanserino Sandiles
+2	Smeargle Wizard Money Gang	McFeeds Mareeps	Smeargle Wizard Money Gang	Fortress Forretress	El Kec Kecleons	Fortress Forretress	Paldean Porygons	Relic Castle Royals	Paldean Porygons	Big Booty Bronzongs	Syracuse Stormclouds	Big Booty Bronzongs
+2	Juuling Jumpluffs	Raging Regis	Juuling Jumpluffs	Turtwig's Tax Evaders	Alolan Raichu Defense Force	Turtwig's Tax Evaders	Easton's Starmies	Ardougne Splash Squad	Easton's Starmies	Maj0r Mudkip	Cheongseolmo's Skwovets	Maj0r Mudkip
+2												
+2												
+2												
+2												
+3	San Antonio Spoinks	Definitely Not Moist Esports	San Antonio Spoinks	The Gardevoir Guardians	Pengu's Allegiant Poketmons	The Gardevoir Guardians	Strictttttttt's Ttttttttttteam 	Water's Woopers	Strictttttttt's Ttttttttttteam 	Sanserino Sandiles	Michigan Moshers	Sanserino Sandiles
+3	Dragonite's Darlings	McFeeds Mareeps	Dragonite's Darlings	Fortress Forretress	Killerfox’s Rare Candies	Fortress Forretress	Sootopolis Sableyes	Relic Castle Royals	Sootopolis Sableyes	Big Booty Bronzongs	Cherrim Coke II	Big Booty Bronzongs
+3	Smeargle Wizard Money Gang	Raging Regis	Smeargle Wizard Money Gang	Turtwig's Tax Evaders	El Kec Kecleons	Turtwig's Tax Evaders	Paldean Porygons	Ardougne Splash Squad	Paldean Porygons	Maj0r Mudkip	Syracuse Stormclouds	Maj0r Mudkip
+3	Juuling Jumpluffs	 Varrock Volcaronas	Juuling Jumpluffs	Kentucky Crobats	Alolan Raichu Defense Force	Kentucky Crobats	Easton's Starmies	Philadelphia Phanpys	Easton's Starmies	Eqqcadrills 	Cheongseolmo's Skwovets	Eqqcadrills 
+3												
+3												
+3												
+3												
+4	San Antonio Spoinks	McFeeds Mareeps	San Antonio Spoinks	Fortress Forretress	Pengu's Allegiant Poketmons	Fortress Forretress	Strictttttttt's Ttttttttttteam 	Relic Castle Royals	Strictttttttt's Ttttttttttteam 	Big Booty Bronzongs	Michigan Moshers	Big Booty Bronzongs
+4	Dragonite's Darlings	Raging Regis	Dragonite's Darlings	Turtwig's Tax Evaders	Killerfox’s Rare Candies	Turtwig's Tax Evaders	Sootopolis Sableyes	Ardougne Splash Squad	Sootopolis Sableyes	Maj0r Mudkip	Cherrim Coke II	Maj0r Mudkip
+4	Smeargle Wizard Money Gang	 Varrock Volcaronas	Smeargle Wizard Money Gang	Kentucky Crobats	El Kec Kecleons	Kentucky Crobats	Paldean Porygons	Philadelphia Phanpys	Paldean Porygons	Eqqcadrills 	Syracuse Stormclouds	Eqqcadrills 
+4	Juuling Jumpluffs	Definitely Not Moist Esports	Juuling Jumpluffs	The Gardevoir Guardians	Alolan Raichu Defense Force	The Gardevoir Guardians	Easton's Starmies	Water's Woopers	Easton's Starmies	Sanserino Sandiles	Cheongseolmo's Skwovets	Sanserino Sandiles
+4												
+4												
+4												
+4												
+5	San Antonio Spoinks	Smeargle Wizard Money Gang	San Antonio Spoinks	El Kec Kecleons	Pengu's Allegiant Poketmons	El Kec Kecleons	Strictttttttt's Ttttttttttteam 	Paldean Porygons	Strictttttttt's Ttttttttttteam 	Syracuse Stormclouds	Michigan Moshers	Syracuse Stormclouds
+5	Dragonite's Darlings	Juuling Jumpluffs	Dragonite's Darlings	Alolan Raichu Defense Force	Killerfox’s Rare Candies	Alolan Raichu Defense Force	Sootopolis Sableyes	Easton's Starmies	Sootopolis Sableyes	Cheongseolmo's Skwovets	Cherrim Coke II	Cheongseolmo's Skwovets
+5	McFeeds Mareeps	 Varrock Volcaronas	McFeeds Mareeps	Kentucky Crobats	Fortress Forretress	Kentucky Crobats	Relic Castle Royals	Philadelphia Phanpys	Relic Castle Royals	Eqqcadrills 	Big Booty Bronzongs	Eqqcadrills 
+5	Definitely Not Moist Esports	Raging Regis	Definitely Not Moist Esports	Turtwig's Tax Evaders	The Gardevoir Guardians	Turtwig's Tax Evaders	Water's Woopers	Ardougne Splash Squad	Water's Woopers	Maj0r Mudkip	Sanserino Sandiles	Maj0r Mudkip
+5												
+5												
+5												
+5												
+6	San Antonio Spoinks	Juuling Jumpluffs	San Antonio Spoinks	Alolan Raichu Defense Force	Pengu's Allegiant Poketmons	Alolan Raichu Defense Force	Strictttttttt's Ttttttttttteam 	Easton's Starmies	Strictttttttt's Ttttttttttteam 	Cheongseolmo's Skwovets	Michigan Moshers	Cheongseolmo's Skwovets
+6	Dragonite's Darlings	Smeargle Wizard Money Gang	Dragonite's Darlings	El Kec Kecleons	Killerfox’s Rare Candies	El Kec Kecleons	Sootopolis Sableyes	Paldean Porygons	Sootopolis Sableyes	Syracuse Stormclouds	Cherrim Coke II	Syracuse Stormclouds
+6	McFeeds Mareeps	Raging Regis	McFeeds Mareeps	Turtwig's Tax Evaders	Fortress Forretress	Turtwig's Tax Evaders	Relic Castle Royals	Ardougne Splash Squad	Relic Castle Royals	Maj0r Mudkip	Big Booty Bronzongs	Maj0r Mudkip
+6	Definitely Not Moist Esports	 Varrock Volcaronas	Definitely Not Moist Esports	Kentucky Crobats	The Gardevoir Guardians	Kentucky Crobats	Water's Woopers	Philadelphia Phanpys	Water's Woopers	Eqqcadrills 	Sanserino Sandiles	Eqqcadrills 
+6												
+6												
+6												
+6												
+7	San Antonio Spoinks	Dragonite's Darlings	San Antonio Spoinks	Killerfox’s Rare Candies	Pengu's Allegiant Poketmons	Killerfox’s Rare Candies	Strictttttttt's Ttttttttttteam 	Sootopolis Sableyes	Strictttttttt's Ttttttttttteam 	Cherrim Coke II	Michigan Moshers	Cherrim Coke II
+7	Juuling Jumpluffs	Smeargle Wizard Money Gang	Juuling Jumpluffs	El Kec Kecleons	Alolan Raichu Defense Force	El Kec Kecleons	Easton's Starmies	Paldean Porygons	Easton's Starmies	Syracuse Stormclouds	Cheongseolmo's Skwovets	Syracuse Stormclouds
+7	McFeeds Mareeps	Definitely Not Moist Esports	McFeeds Mareeps	The Gardevoir Guardians	Fortress Forretress	The Gardevoir Guardians	Relic Castle Royals	Water's Woopers	Relic Castle Royals	Sanserino Sandiles	Big Booty Bronzongs	Sanserino Sandiles
+7	Raging Regis	 Varrock Volcaronas	Raging Regis	Kentucky Crobats	Turtwig's Tax Evaders	Kentucky Crobats	Ardougne Splash Squad	Philadelphia Phanpys	Ardougne Splash Squad	Eqqcadrills 	Maj0r Mudkip	Eqqcadrills 
+7												
+7												
+7												
+7												
+8												
+8												
+8												
+8												
+8												
+8												
+8												
+8												

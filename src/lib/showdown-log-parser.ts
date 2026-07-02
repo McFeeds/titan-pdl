@@ -99,17 +99,6 @@ export function parseShowdownLog(logText: string): ParsedGameResult {
         break;
       }
 
-      case "detailschange":
-      case "-formechange": {
-        // |detailschange|p1b: Dwarf Multicannon|Blastoise-Mega, L50, F
-        const slot = extractSlot(parts[2] ?? "");
-        if (!slot) break;
-        const name = extractPokemonName(parts[3] ?? "");
-        if (!name) break;
-        slotPokemon[slot] = name;
-        break;
-      }
-
       case "replace": {
         // Illusion (Zoroark) reveal - treat like a switch
         const slot = extractSlot(parts[2] ?? "");

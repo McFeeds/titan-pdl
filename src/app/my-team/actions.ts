@@ -24,21 +24,52 @@ export interface GameAnalysis {
   gameNumber: number;
   replayUrl: string;
   winnerTeamName: string | null;
-  teams: [TeamGameData, TeamGameData]; // [p1-side team, p2-side team]
+  teams: [TeamGameData, TeamGameData];
 }
 
 export interface MatchAnalysis {
   games: GameAnalysis[];
 }
 
-// ---------- Shared helpers ----------
+// ---------- Internal helpers ----------
+
+interface RosterEntry {
+  id: number;
+  name: string;
+}
 
 interface MatchSetup {
   match: { id: number; home_team_id: number; away_team_id: number; season_id: number };
   myTeamId: number;
   teamNames: Map<number, string>;
   membersByTeam: Record<number, string[]>;
+  // Maps base-slug -> { pokemon_id, display_name } for each team's roster.
+  // Handles mega/form variants: log "Blastoise" matches roster "blastoise-mega".
+  rosterByTeam: Record<number, Map<string, RosterEntry>>;
   admin: SupabaseClient;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function buildRosterLookup(rosterRows: any[]): Map<string, RosterEntry> {
+  const map = new Map<string, RosterEntry>();
+  for (const row of rosterRows ?? []) {
+    const p = row.pokemon as { id: number; name: string; slug: string } | null;
+    if (!p) continue;
+    map.set(p.slug, { id: p.id, name: p.name });
+  }
+  return map;
+}
+
+// Match a log pokemon name (always base form) to a roster entry.
+// Tries exact slug first, then any slug that starts with baseslug + '-'
+// so "blastoise" correctly resolves to the "blastoise-mega" roster entry.
+function findInRoster(lookup: Map<string, RosterEntry>, logName: string): RosterEntry | null {
+  const baseSlug = nameToSlug(logName);
+  if (lookup.has(baseSlug)) return lookup.get(baseSlug)!;
+  for (const [slug, entry] of lookup) {
+    if (slug.startsWith(baseSlug + "-")) return entry;
+  }
+  return null;
 }
 
 async function resolveMatchSetup(
@@ -70,18 +101,30 @@ async function resolveMatchSetup(
     return { setup: null, error: "You are not a member of either team in this match" };
   }
 
-  // Fetch team names and showdown usernames in parallel
-  const [{ data: teams }, { data: teamMembers }] = await Promise.all([
-    admin
-      .from("teams")
-      .select("id, team_name")
-      .in("id", [match.home_team_id, match.away_team_id]),
+  // Fetch team names, showdown usernames, and both rosters in parallel
+  const [
+    { data: teams },
+    { data: teamMembers },
+    { data: homeRosterRows },
+    { data: awayRosterRows },
+  ] = await Promise.all([
+    admin.from("teams").select("id, team_name").in("id", [match.home_team_id, match.away_team_id]),
     admin
       .from("team_members")
       .select("team_id, showdown_name")
       .in("team_id", [match.home_team_id, match.away_team_id])
       .eq("season_id", match.season_id)
       .not("showdown_name", "is", null),
+    admin
+      .from("rosters")
+      .select("pokemon(id, name, slug)")
+      .eq("team_id", match.home_team_id)
+      .eq("season_id", match.season_id),
+    admin
+      .from("rosters")
+      .select("pokemon(id, name, slug)")
+      .eq("team_id", match.away_team_id)
+      .eq("season_id", match.season_id),
   ]);
 
   const teamNames = new Map((teams ?? []).map((t) => [t.id as number, t.team_name as string]));
@@ -94,12 +137,18 @@ async function resolveMatchSetup(
     membersByTeam[tid].push((tm.showdown_name as string).toLowerCase());
   }
 
+  const rosterByTeam: Record<number, Map<string, RosterEntry>> = {
+    [match.home_team_id as number]: buildRosterLookup(homeRosterRows ?? []),
+    [match.away_team_id as number]: buildRosterLookup(awayRosterRows ?? []),
+  };
+
   return {
     setup: {
       match: match as MatchSetup["match"],
       myTeamId: membership.team_id as number,
       teamNames,
       membersByTeam,
+      rosterByTeam,
       admin,
     },
     error: null,
@@ -121,6 +170,26 @@ async function fetchAndParseLog(
   } catch {
     return { logText: null, error: `Failed to load replay for game ${gameNumber}. Check the URL and your connection.` };
   }
+}
+
+function resolveTeams(
+  parsed: ReturnType<typeof parseShowdownLog>,
+  membersByTeam: Record<number, string[]>,
+  gameNumber: number
+): { p1TeamId: number; p2TeamId: number } | { error: string } {
+  let p1TeamId: number | null = null;
+  let p2TeamId: number | null = null;
+  for (const [tidStr, names] of Object.entries(membersByTeam)) {
+    const tid = Number(tidStr);
+    if (names.includes(parsed.p1Username.toLowerCase())) p1TeamId = tid;
+    if (names.includes(parsed.p2Username.toLowerCase())) p2TeamId = tid;
+  }
+  if (!p1TeamId || !p2TeamId) {
+    return {
+      error: `Game ${gameNumber}: could not match "${parsed.p1Username}" and "${parsed.p2Username}" to the teams in this match. Make sure showdown names are recorded for all players.`,
+    };
+  }
+  return { p1TeamId, p2TeamId };
 }
 
 // ---------- Public actions ----------
@@ -159,7 +228,7 @@ export async function updateRosterNickname(
   return { error: null };
 }
 
-// Fetch and parse replays, return a preview for user confirmation — no DB writes.
+// Fetch and parse replays, return a preview for confirmation — no DB writes.
 export async function analyzeMatchResults(
   matchId: number,
   games: { gameNumber: number; replayUrl: string }[]
@@ -174,7 +243,7 @@ export async function analyzeMatchResults(
   const { setup, error: setupError } = await resolveMatchSetup(matchId, discordUsername);
   if (!setup) return { analysis: null, error: setupError };
 
-  const { myTeamId, teamNames, membersByTeam } = setup;
+  const { myTeamId, teamNames, membersByTeam, rosterByTeam } = setup;
 
   const gameAnalyses: GameAnalysis[] = [];
 
@@ -187,22 +256,10 @@ export async function analyzeMatchResults(
     if (!logText) return { analysis: null, error: fetchError };
 
     const parsed = parseShowdownLog(logText);
+    const teams = resolveTeams(parsed, membersByTeam, game.gameNumber);
+    if ("error" in teams) return { analysis: null, error: teams.error };
 
-    let p1TeamId: number | null = null;
-    let p2TeamId: number | null = null;
-    for (const [tidStr, names] of Object.entries(membersByTeam)) {
-      const tid = Number(tidStr);
-      if (names.includes(parsed.p1Username.toLowerCase())) p1TeamId = tid;
-      if (names.includes(parsed.p2Username.toLowerCase())) p2TeamId = tid;
-    }
-
-    if (!p1TeamId || !p2TeamId) {
-      return {
-        analysis: null,
-        error: `Game ${game.gameNumber}: could not match "${parsed.p1Username}" and "${parsed.p2Username}" to the teams in this match. Make sure showdown names are recorded for all players.`,
-      };
-    }
-
+    const { p1TeamId, p2TeamId } = teams;
     const winnerTeamId =
       parsed.winner === "p1" ? p1TeamId :
       parsed.winner === "p2" ? p2TeamId :
@@ -212,14 +269,19 @@ export async function analyzeMatchResults(
       teamId: number,
       selected: string[],
       stats: Record<string, { kills: number; deaths: number }>
-    ): TeamGameData => ({
-      teamName: teamNames.get(teamId) ?? "Unknown",
-      isMyTeam: teamId === myTeamId,
-      pokemon: selected.map((name) => {
-        const s = stats[name] ?? { kills: 0, deaths: 0 };
-        return { name, kills: s.kills, deaths: s.deaths };
-      }),
-    });
+    ): TeamGameData => {
+      const roster = rosterByTeam[teamId] ?? new Map();
+      return {
+        teamName: teamNames.get(teamId) ?? "Unknown",
+        isMyTeam: teamId === myTeamId,
+        pokemon: selected.map((logName) => {
+          const s = stats[logName] ?? { kills: 0, deaths: 0 };
+          // Show the actual roster pokemon name (e.g. "Blastoise-Mega") not the log base name
+          const rosterEntry = findInRoster(roster, logName);
+          return { name: rosterEntry?.name ?? logName, kills: s.kills, deaths: s.deaths };
+        }),
+      };
+    };
 
     gameAnalyses.push({
       gameNumber: game.gameNumber,
@@ -250,9 +312,8 @@ export async function submitMatchResults(
   const { setup, error: setupError } = await resolveMatchSetup(matchId, discordUsername);
   if (!setup) return { error: setupError };
 
-  const { match, membersByTeam, admin } = setup;
+  const { match, membersByTeam, rosterByTeam, admin } = setup;
 
-  // Guard: don't overwrite existing game data
   const { data: existingGames } = await admin
     .from("match_games")
     .select("id")
@@ -272,21 +333,10 @@ export async function submitMatchResults(
     if (!logText) return { error: fetchError };
 
     const parsed = parseShowdownLog(logText);
+    const teams = resolveTeams(parsed, membersByTeam, game.gameNumber);
+    if ("error" in teams) return { error: teams.error };
 
-    let p1TeamId: number | null = null;
-    let p2TeamId: number | null = null;
-    for (const [tidStr, names] of Object.entries(membersByTeam)) {
-      const tid = Number(tidStr);
-      if (names.includes(parsed.p1Username.toLowerCase())) p1TeamId = tid;
-      if (names.includes(parsed.p2Username.toLowerCase())) p2TeamId = tid;
-    }
-
-    if (!p1TeamId || !p2TeamId) {
-      return {
-        error: `Game ${game.gameNumber}: could not match "${parsed.p1Username}" and "${parsed.p2Username}" to the teams in this match.`,
-      };
-    }
-
+    const { p1TeamId, p2TeamId } = teams;
     const winnerTeamId =
       parsed.winner === "p1" ? p1TeamId :
       parsed.winner === "p2" ? p2TeamId :
@@ -306,18 +356,7 @@ export async function submitMatchResults(
     }
 
     const matchGameId = gameRow.id as number;
-
     await admin.from("match_game_pokemon").delete().eq("match_game_id", matchGameId);
-
-    const allNames = [...parsed.p1Selected, ...parsed.p2Selected];
-    const slugs = [...new Set(allNames.map(nameToSlug))];
-
-    const { data: pokemonRows } = await admin
-      .from("pokemon")
-      .select("id, slug")
-      .in("slug", slugs);
-
-    const pokemonBySlug = new Map((pokemonRows ?? []).map((p) => [p.slug as string, p.id as number]));
 
     const insertRows: { match_game_id: number; team_id: number; pokemon_id: number; kills: number; deaths: number }[] = [];
 
@@ -327,14 +366,16 @@ export async function submitMatchResults(
     ];
 
     for (const [teamId, selected, stats] of pairs) {
-      for (const pokemonName of selected) {
-        const pokemonId = pokemonBySlug.get(nameToSlug(pokemonName));
-        if (!pokemonId) {
-          console.warn(`[submitMatchResults] Pokemon not found in DB: "${pokemonName}"`);
+      const roster = rosterByTeam[teamId] ?? new Map();
+      for (const logName of selected) {
+        // Look up the pokemon from the team's roster (handles mega/form variants)
+        const rosterEntry = findInRoster(roster, logName);
+        if (!rosterEntry) {
+          console.warn(`[submitMatchResults] "${logName}" not found in roster for team ${teamId}`);
           continue;
         }
-        const s = stats[pokemonName] ?? { kills: 0, deaths: 0 };
-        insertRows.push({ match_game_id: matchGameId, team_id: teamId, pokemon_id: pokemonId, kills: s.kills, deaths: s.deaths });
+        const s = stats[logName] ?? { kills: 0, deaths: 0 };
+        insertRows.push({ match_game_id: matchGameId, team_id: teamId, pokemon_id: rosterEntry.id, kills: s.kills, deaths: s.deaths });
       }
     }
 

@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { typeColor } from "@/lib/pokemon-types";
 import type { Pokemon, RosterPokemon } from "@/types/database";
 import { updateRosterNickname } from "./actions";
+import SubmitResultsModal from "./SubmitResultsModal";
 
 // --- Types ---
 
@@ -177,7 +179,13 @@ function PokemonCard({ pokemon, seasonId }: { pokemon: RosterPokemon; seasonId: 
 
 // --- Schedule table ---
 
-function ScheduleTable({ schedule }: { schedule: ScheduleEntry[] }) {
+function ScheduleTable({
+  schedule,
+  onSubmitMatch,
+}: {
+  schedule: ScheduleEntry[];
+  onSubmitMatch?: (matchId: number) => void;
+}) {
   if (schedule.length === 0) {
     return (
       <p className="text-sm text-gray-600 italic">No matches scheduled.</p>
@@ -191,7 +199,7 @@ function ScheduleTable({ schedule }: { schedule: ScheduleEntry[] }) {
           <tr className="border-b border-white/10 bg-white/[0.03]">
             <th className="px-4 py-2.5 text-left text-[10px] text-gray-500 font-bold uppercase tracking-wider w-16">Wk</th>
             <th className="px-3 py-2.5 text-left text-[10px] text-gray-500 font-bold uppercase tracking-wider">Opponent</th>
-            <th className="px-4 py-2.5 text-center text-[10px] text-gray-500 font-bold uppercase tracking-wider w-24">Result</th>
+            <th className="px-4 py-2.5 text-center text-[10px] text-gray-500 font-bold uppercase tracking-wider w-28">Result</th>
           </tr>
         </thead>
         <tbody>
@@ -199,11 +207,12 @@ function ScheduleTable({ schedule }: { schedule: ScheduleEntry[] }) {
             const played = entry.my_games_won >= 2 || entry.opp_games_won >= 2;
             const inProgress = !played && entry.total_games > 0;
             const myWin = entry.my_games_won >= 2;
+            const noResults = !played && !inProgress;
 
             return (
               <tr
                 key={entry.id}
-                className={`border-b border-white/5 ${i % 2 === 0 ? "" : "bg-white/[0.02]"}`}
+                className={`group border-b border-white/5 ${i % 2 === 0 ? "" : "bg-white/[0.02]"}`}
               >
                 {/* Week */}
                 <td className="px-4 py-2.5 text-gray-400 font-mono text-xs">
@@ -244,6 +253,16 @@ function ScheduleTable({ schedule }: { schedule: ScheduleEntry[] }) {
                     </span>
                   ) : inProgress ? (
                     <span className="text-xs text-amber-500 italic">In progress</span>
+                  ) : noResults && onSubmitMatch ? (
+                    <div className="relative flex items-center justify-center h-6">
+                      <span className="text-xs text-gray-600 group-hover:opacity-0 transition-opacity pointer-events-none select-none">—</span>
+                      <button
+                        onClick={() => onSubmitMatch(entry.id)}
+                        className="absolute text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-indigo-500/30 hover:border-indigo-400/50 rounded px-2 py-0.5"
+                      >
+                        Submit
+                      </button>
+                    </div>
                   ) : (
                     <span className="text-xs text-gray-600">—</span>
                   )}
@@ -413,6 +432,7 @@ function PokemonMiniSprite({ pokemon }: { pokemon: Pokemon }) {
 
 export default function MyTeamView({
   team,
+  teamId: _teamId,
   seasonId,
   roster,
   schedule,
@@ -420,6 +440,10 @@ export default function MyTeamView({
   totalGamesPlayed,
   record,
 }: Props) {
+  const router = useRouter();
+  const [submitMatchId, setSubmitMatchId] = useState<number | null>(null);
+  const submitMatch = schedule.find((e) => e.id === submitMatchId) ?? null;
+
   return (
     <main className="min-h-screen bg-[#0a0a1a] pt-20 px-6 pb-12">
       {/* Team header */}
@@ -470,7 +494,10 @@ export default function MyTeamView({
         {/* Schedule */}
         <div className="flex-1 min-w-0 flex flex-col">
           <SectionHeading label="Schedule" />
-          <ScheduleTable schedule={schedule} />
+          <ScheduleTable
+            schedule={schedule}
+            onSubmitMatch={(id) => setSubmitMatchId(id)}
+          />
         </div>
 
         {/* Pokemon stats */}
@@ -483,6 +510,19 @@ export default function MyTeamView({
           />
         </div>
       </div>
+
+      {/* Submit Results Modal */}
+      {submitMatch && (
+        <SubmitResultsModal
+          matchId={submitMatch.id}
+          weekNumber={submitMatch.week_number}
+          opponentName={submitMatch.opponent.team_name}
+          onClose={() => {
+            setSubmitMatchId(null);
+            router.refresh();
+          }}
+        />
+      )}
     </main>
   );
 }

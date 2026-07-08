@@ -7,13 +7,7 @@ export const metadata = { title: "Draft Pools | Titan PDL" };
 export default async function DraftPoolsPage() {
   const supabase = await createClient();
 
-  const [
-    { data: conferences },
-    { data: activeSeason },
-    { data: rawPokemon },
-    { data: rosters },
-    { data: authData },
-  ] = await Promise.all([
+  const [{ data: conferences }, { data: activeSeason }] = await Promise.all([
     supabase.from("conferences").select("id, name").order("name"),
     supabase
       .from("seasons")
@@ -21,12 +15,27 @@ export default async function DraftPoolsPage() {
       .eq("is_active", true)
       .limit(1)
       .maybeSingle(),
+  ]);
+
+  const activeSeasonId = activeSeason?.id ?? null;
+
+  const [
+    { data: rawPokemon },
+    { data: rosters },
+    { data: teamSeasons },
+    { data: authData },
+  ] = await Promise.all([
     supabase
       .from("pokemon")
       .select("*, pokemon_moves(important_moves(id, name, slug))")
       .order("point_value", { ascending: false })
       .order("name"),
-    supabase.from("rosters").select("pokemon_id, conference_id, season_id"),
+    supabase.from("rosters").select("pokemon_id, conference_id, season_id, team_id"),
+    supabase
+      .from("team_seasons")
+      .select("team_id, conference_id, draft_position, teams(team_name)")
+      .eq("season_id", activeSeasonId ?? -1)
+      .order("draft_position"),
     supabase.auth.getUser(),
   ]);
 
@@ -67,7 +76,6 @@ export default async function DraftPoolsPage() {
   }
 
   // Build initial drafted pokemon per conference for the active season
-  const activeSeasonId = activeSeason?.id ?? null;
   const draftedByConference = (conferences ?? []).map((conf) => ({
     conferenceId: conf.id,
     pokemonIds: (rosters ?? [])
@@ -77,6 +85,24 @@ export default async function DraftPoolsPage() {
       .map((r) => r.pokemon_id),
   }));
 
+  // Build per-team draft order + current roster for the active season
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const teams = (teamSeasons ?? [])
+    .map((ts: any) => {
+      const teamRow = Array.isArray(ts.teams) ? ts.teams[0] : ts.teams;
+      return {
+        id: ts.team_id as number,
+        name: (teamRow?.team_name as string | undefined) ?? `Team #${ts.team_id}`,
+        conferenceId: ts.conference_id as number,
+        draftPosition: ts.draft_position as number | null,
+        pokemonIds: (rosters ?? [])
+          .filter((r) => r.team_id === ts.team_id && r.season_id === activeSeasonId)
+          .map((r) => r.pokemon_id),
+      };
+    })
+    .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999));
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+
   return (
     <DraftBoard
       conferences={conferences ?? []}
@@ -84,6 +110,7 @@ export default async function DraftPoolsPage() {
       activeSeasonId={activeSeasonId}
       draftedByConference={draftedByConference}
       userConferenceId={userConferenceId}
+      teams={teams}
     />
   );
 }

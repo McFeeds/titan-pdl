@@ -241,12 +241,21 @@ function buildFilter(
   return (p) => branchFilters.some((f) => f(p));
 }
 
+interface TeamDraftInfo {
+  id: number;
+  name: string;
+  conferenceId: number;
+  draftPosition: number | null;
+  pokemonIds: number[];
+}
+
 interface Props {
   conferences: Conference[];
   pokemon: PokemonWithMoves[];
   activeSeasonId: number | null;
   draftedByConference: { conferenceId: number; pokemonIds: number[] }[];
   userConferenceId: number | null;
+  teams: TeamDraftInfo[];
 }
 
 export default function DraftBoard({
@@ -255,9 +264,11 @@ export default function DraftBoard({
   activeSeasonId,
   draftedByConference: initialDrafted,
   userConferenceId,
+  teams,
 }: Props) {
   const defaultConferenceId = userConferenceId ?? conferences[0]?.id ?? null;
   const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(defaultConferenceId);
+  const [view, setView] = useState<"pool" | "teams">("pool");
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,6 +278,16 @@ export default function DraftBoard({
       const map: Record<number, Set<number>> = {};
       for (const { conferenceId, pokemonIds } of initialDrafted) {
         map[conferenceId] = new Set(pokemonIds);
+      }
+      return map;
+    }
+  );
+
+  const [teamRosterMap, setTeamRosterMap] = useState<Record<number, Set<number>>>(
+    () => {
+      const map: Record<number, Set<number>> = {};
+      for (const team of teams) {
+        map[team.id] = new Set(team.pokemonIds);
       }
       return map;
     }
@@ -294,6 +315,7 @@ export default function DraftBoard({
             pokemon_id: number;
             conference_id: number;
             season_id: number;
+            team_id: number;
           };
           if (row.season_id !== activeSeasonId) return;
           setDraftedMap((prev) => {
@@ -301,12 +323,20 @@ export default function DraftBoard({
             next.add(row.pokemon_id);
             return { ...prev, [row.conference_id]: next };
           });
+          setTeamRosterMap((prev) => {
+            const next = new Set(prev[row.team_id]);
+            next.add(row.pokemon_id);
+            return { ...prev, [row.team_id]: next };
+          });
         }
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "rosters" },
         (payload) => {
+          // Note: only primary-key columns (pokemon_id, conference_id, season_id)
+          // are guaranteed present on DELETE — team_id is not part of the PK, so
+          // we look up which team currently owns the pokemon instead.
           const row = payload.old as {
             pokemon_id: number;
             conference_id: number;
@@ -319,6 +349,17 @@ export default function DraftBoard({
             next.delete(row.pokemon_id);
             return { ...prev, [row.conference_id]: next };
           });
+          setTeamRosterMap((prev) => {
+            const owningTeam = teams.find(
+              (t) =>
+                t.conferenceId === row.conference_id &&
+                prev[t.id]?.has(row.pokemon_id)
+            );
+            if (!owningTeam) return prev;
+            const next = new Set(prev[owningTeam.id]);
+            next.delete(row.pokemon_id);
+            return { ...prev, [owningTeam.id]: next };
+          });
         }
       )
       .subscribe();
@@ -326,7 +367,7 @@ export default function DraftBoard({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeSeasonId]);
+  }, [activeSeasonId, teams]);
 
   const draftedIds =
     selectedConferenceId !== null
@@ -353,12 +394,25 @@ export default function DraftBoard({
 
   const noResults = !!debouncedQuery.trim() && filteredPokemon.length === 0;
 
+  const pokemonById = useMemo(
+    () => new Map(pokemon.map((p) => [p.id, p])),
+    [pokemon]
+  );
+
+  const teamsForConference = useMemo(
+    () =>
+      teams
+        .filter((t) => t.conferenceId === selectedConferenceId)
+        .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999)),
+    [teams, selectedConferenceId]
+  );
+
   return (
     <main className="pt-20 pb-16 min-h-screen">
       <div className="max-w-7xl mx-auto px-6">
         {/* Conference toggle */}
-        <div className="my-6">
-          <div className="bg-white/5 rounded-2xl p-1.5 flex w-full border border-white/10">
+        <div className="my-6 flex gap-3 items-stretch">
+          <div className="bg-white/5 rounded-2xl p-1.5 flex flex-1 border border-white/10">
             {conferences.map((conf) => {
               const isSelected = selectedConferenceId === conf.id;
               const theme = getConferenceTheme(conf.name);
@@ -386,55 +440,181 @@ export default function DraftBoard({
               );
             })}
           </div>
-        </div>
 
-        {/* Search — sticky below the fixed nav */}
-        <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
-          <input
-            type="text"
-            placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
-            value={rawQuery}
-            onChange={(e) => setRawQuery(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
-          />
-        </div>
-
-        {/* No results */}
-        {noResults && (
-          <div className="text-center py-20 text-gray-500 text-sm">
-            No pokemon match your search.
+          {/* View toggle: pool board vs. team draft order */}
+          <div className="bg-white/5 rounded-2xl p-1.5 flex border border-white/10">
+            {(
+              [
+                ["pool", "Pool"],
+                ["teams", "Teams"],
+              ] as [typeof view, string][]
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`px-5 py-4 rounded-xl font-bold text-sm tracking-wide transition-colors duration-200 ${
+                  view === v
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
           </div>
-        )}
+        </div>
 
-        {/* Board rows grouped by point value */}
-        {groups.map(([pointValue, group]) => (
-          <div key={pointValue} className="mb-10">
-            <div className="flex items-center gap-4 mb-5">
-              <div className="h-px flex-1 bg-white/10" />
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-3xl font-black text-white tabular-nums">
-                  {pointValue}
-                </span>
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
-                  pts
-                </span>
+        {view === "pool" ? (
+          <>
+            {/* Search — sticky below the fixed nav */}
+            <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
+              <input
+                type="text"
+                placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
+                value={rawQuery}
+                onChange={(e) => setRawQuery(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+              />
+            </div>
+
+            {/* No results */}
+            {noResults && (
+              <div className="text-center py-20 text-gray-500 text-sm">
+                No pokemon match your search.
               </div>
-              <div className="h-px flex-1 bg-white/10" />
-            </div>
+            )}
 
-            <div className="flex flex-wrap gap-3">
-              {group.map((p) => (
-                <PokemonCard
-                  key={p.id}
-                  pokemon={p}
-                  isDrafted={draftedIds.has(p.id)}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+            {/* Board rows grouped by point value */}
+            {groups.map(([pointValue, group]) => (
+              <div key={pointValue} className="mb-10">
+                <div className="flex items-center gap-4 mb-5">
+                  <div className="h-px flex-1 bg-white/10" />
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-black text-white tabular-nums">
+                      {pointValue}
+                    </span>
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
+                      pts
+                    </span>
+                  </div>
+                  <div className="h-px flex-1 bg-white/10" />
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  {group.map((p) => (
+                    <PokemonCard
+                      key={p.id}
+                      pokemon={p}
+                      isDrafted={draftedIds.has(p.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </>
+        ) : (
+          <TeamsView
+            teams={teamsForConference}
+            teamRosterMap={teamRosterMap}
+            pokemonById={pokemonById}
+          />
+        )}
       </div>
     </main>
+  );
+}
+
+function TeamsView({
+  teams,
+  teamRosterMap,
+  pokemonById,
+}: {
+  teams: TeamDraftInfo[];
+  teamRosterMap: Record<number, Set<number>>;
+  pokemonById: Map<number, PokemonWithMoves>;
+}) {
+  if (teams.length === 0) {
+    return (
+      <div className="text-center py-20 text-gray-500 text-sm">
+        No teams found for this conference.
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pb-4">
+      {teams.map((team) => {
+        const pokemonIds = [...(teamRosterMap[team.id] ?? [])];
+        return (
+          <div
+            key={team.id}
+            className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col min-w-0"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold shrink-0">
+                {team.draftPosition ?? "—"}
+              </span>
+              <span className="text-white text-sm font-semibold truncate min-w-0">
+                {team.name}
+              </span>
+              <span className="ml-auto text-[10px] text-gray-500 shrink-0">
+                {pokemonIds.length}
+              </span>
+            </div>
+
+            <div className="flex flex-wrap gap-1.5 content-start">
+              {pokemonIds.length === 0 ? (
+                <span className="text-[11px] text-gray-600 italic">
+                  No picks yet
+                </span>
+              ) : (
+                pokemonIds.map((id) => {
+                  const p = pokemonById.get(id);
+                  if (!p) return null;
+                  return <MiniPokemon key={id} pokemon={p} />;
+                })
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MiniPokemon({ pokemon }: { pokemon: PokemonWithMoves }) {
+  const primaryColor = TYPE_COLORS[pokemon.type_1] ?? "#6b7280";
+
+  return (
+    <div className="group relative">
+      <div
+        className="w-8 h-8 rounded overflow-hidden bg-white/5 border-t-2 border border-white/10"
+        style={{ borderTopColor: primaryColor }}
+      >
+        {pokemon.dex_number ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemon.dex_number}.png`}
+            alt={pokemon.name}
+            width={32}
+            height={32}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.currentTarget.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemon.dex_number}.png`;
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">
+            ?
+          </div>
+        )}
+      </div>
+
+      {/* Hover tooltip */}
+      <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-lg px-2 py-1 opacity-0 group-hover:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl whitespace-nowrap">
+        <p className="font-semibold text-white text-xs">{pokemon.name}</p>
+      </div>
+    </div>
   );
 }
 

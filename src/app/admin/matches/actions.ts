@@ -112,3 +112,18 @@ export async function removeMatchGamePokemon(formData: FormData) {
 
   revalidatePath(`/admin/matches/${match_id}`);
 }
+
+export async function clearMatchResults(formData: FormData) {
+  await requireAdmin();
+
+  const match_id = Number(formData.get("match_id"));
+  const admin = createAdminClient();
+
+  // Deleting match_games cascades to match_game_pokemon
+  await admin.from("match_games").delete().eq("match_id", match_id);
+  await admin.from("matches").update({ played_at: null }).eq("id", match_id);
+
+  revalidatePath(`/admin/matches/${match_id}`);
+  revalidatePath("/my-team");
+  revalidatePath("/schedules");
+}

@@ -1,10 +1,11 @@
 "use client";
 
-import { useActionState, useTransition } from "react";
+import { useActionState, useTransition, useState } from "react";
 import {
   upsertMatchGame,
   addMatchGamePokemon,
   removeMatchGamePokemon,
+  clearMatchResults,
 } from "../actions";
 
 const selectCls =
@@ -74,7 +75,6 @@ function GameSection({
     });
   }
 
-  const broughtPokemonIds = new Set((game?.match_game_pokemon ?? []).map((p) => p.pokemon_id));
   const usedByHome = new Set(homePokemon.map((p) => p.pokemon_id));
   const usedByAway = new Set(awayPokemon.map((p) => p.pokemon_id));
   const availableForHome = allPokemon.filter((p) => !usedByHome.has(p.id));
@@ -191,8 +191,57 @@ function GameSection({
 }
 
 export default function MatchDetailManager({ matchId, homeTeam, awayTeam, games, allPokemon }: Props) {
+  const [confirming, setConfirming] = useState(false);
+  const [clearPending, startClear] = useTransition();
+  const hasResults = games.length > 0;
+
+  function handleClear() {
+    const fd = new FormData();
+    fd.append("match_id", matchId.toString());
+    startClear(async () => {
+      await clearMatchResults(fd);
+      setConfirming(false);
+    });
+  }
+
   return (
     <div className="flex flex-col gap-6">
+      {/* Clear results */}
+      {hasResults && (
+        <div className="flex items-center gap-3 p-4 bg-red-500/5 border border-red-500/20 rounded-xl">
+          <p className="text-sm text-gray-400 flex-1">
+            {confirming
+              ? "This will delete all game results and pokemon stats for this match. Are you sure?"
+              : "Remove all recorded results for this match."}
+          </p>
+          {confirming ? (
+            <>
+              <button
+                onClick={handleClear}
+                disabled={clearPending}
+                className="px-3 py-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-500 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {clearPending ? "Clearing…" : "Yes, clear"}
+              </button>
+              <button
+                onClick={() => setConfirming(false)}
+                disabled={clearPending}
+                className="px-3 py-1.5 text-xs font-semibold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirming(true)}
+              className="px-3 py-1.5 text-xs font-semibold text-red-400 hover:text-red-300 border border-red-500/30 hover:border-red-400/50 rounded-lg transition-colors"
+            >
+              Clear Results
+            </button>
+          )}
+        </div>
+      )}
+
       {[1, 2, 3].map((n) => (
         <GameSection
           key={n}

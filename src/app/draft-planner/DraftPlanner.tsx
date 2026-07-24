@@ -1,11 +1,12 @@
 "use client";
 
 import { ATTACKING_TYPES, getEffectivenessWithAbilities, typeColor } from "@/lib/pokemon-types";
+import { DRAFT_BUDGET, DRAFT_SLOT_COUNT } from "@/lib/draft";
 import { ImportantMove, PokemonWithMoves } from "@/types/database";
 import { useEffect, useMemo, useState } from "react";
 
-const SLOT_COUNT = 12;
-const DEFAULT_BUDGET = 115;
+const SLOT_COUNT = DRAFT_SLOT_COUNT;
+const DEFAULT_BUDGET = DRAFT_BUDGET;
 const STORAGE_KEY = "titan-pdl-draft-teams";
 
 const DEFAULT_MOVE_NAMES = [

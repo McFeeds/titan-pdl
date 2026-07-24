@@ -1,6 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { DRAFT_BUDGET, DRAFT_SLOT_COUNT } from "@/lib/draft";
 import { getEffectiveness, POKEMON_TYPES, TYPE_COLORS } from "@/lib/pokemon-types";
 import { Conference, PokemonWithMoves } from "@/types/database";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -513,11 +514,16 @@ export default function DraftBoard({
             ))}
           </>
         ) : (
-          <TeamsView
-            teams={teamsForConference}
-            teamRosterMap={teamRosterMap}
-            pokemonById={pokemonById}
-          />
+          // Break out of the max-w-7xl wrapper so team panels get the full viewport width
+          <div className="w-screen relative left-1/2 right-1/2 -mx-[50vw] px-6">
+            <div className="max-w-[1700px] mx-auto">
+              <TeamsView
+                teams={teamsForConference}
+                teamRosterMap={teamRosterMap}
+                pokemonById={pokemonById}
+              />
+            </div>
+          </div>
         )}
       </div>
     </main>
@@ -542,38 +548,46 @@ function TeamsView({
   }
 
   return (
-    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pb-4">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pb-4">
       {teams.map((team) => {
         const pokemonIds = [...(teamRosterMap[team.id] ?? [])];
+        const pokemonList = pokemonIds
+          .map((id) => pokemonById.get(id))
+          .filter((p): p is PokemonWithMoves => !!p);
+        const spent = pokemonList.reduce((sum, p) => sum + p.point_value, 0);
+        const remaining = DRAFT_BUDGET - spent;
+
         return (
           <div
             key={team.id}
-            className="bg-white/5 border border-white/10 rounded-xl p-3 flex flex-col min-w-0"
+            className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col min-w-0"
           >
-            <div className="flex items-center gap-2 mb-2">
-              <span className="flex items-center justify-center w-6 h-6 rounded-full bg-indigo-600 text-white text-[11px] font-bold shrink-0">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold shrink-0">
                 {team.draftPosition ?? "—"}
               </span>
-              <span className="text-white text-sm font-semibold truncate min-w-0">
+              <span className="text-white text-base font-bold truncate min-w-0">
                 {team.name}
-              </span>
-              <span className="ml-auto text-[10px] text-gray-500 shrink-0">
-                {pokemonIds.length}
               </span>
             </div>
 
-            <div className="flex flex-wrap gap-1.5 content-start">
-              {pokemonIds.length === 0 ? (
-                <span className="text-[11px] text-gray-600 italic">
-                  No picks yet
-                </span>
-              ) : (
-                pokemonIds.map((id) => {
-                  const p = pokemonById.get(id);
-                  if (!p) return null;
-                  return <MiniPokemon key={id} pokemon={p} />;
-                })
-              )}
+            <div className="grid grid-cols-6 gap-2">
+              {Array.from({ length: DRAFT_SLOT_COUNT }).map((_, i) => (
+                <DraftSlot key={i} slotNumber={i + 1} pokemon={pokemonList[i]} />
+              ))}
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
+              <span className="text-gray-500">
+                Spent <span className="text-gray-300 font-semibold">{spent}</span>
+              </span>
+              <span
+                className={`font-bold ${
+                  remaining < 0 ? "text-red-400" : "text-emerald-400"
+                }`}
+              >
+                {remaining} left
+              </span>
             </div>
           </div>
         );
@@ -582,13 +596,30 @@ function TeamsView({
   );
 }
 
-function MiniPokemon({ pokemon }: { pokemon: PokemonWithMoves }) {
+function DraftSlot({
+  slotNumber,
+  pokemon,
+}: {
+  slotNumber: number;
+  pokemon: PokemonWithMoves | undefined;
+}) {
+  if (!pokemon) {
+    return (
+      <div className="flex flex-col items-center gap-0.5">
+        <div className="w-full aspect-square rounded-lg border border-dashed border-white/10 flex items-center justify-center text-gray-700 text-[10px]">
+          {slotNumber}
+        </div>
+        <span className="text-[9px] leading-tight">&nbsp;</span>
+      </div>
+    );
+  }
+
   const primaryColor = TYPE_COLORS[pokemon.type_1] ?? "#6b7280";
 
   return (
-    <div className="group relative">
+    <div className="flex flex-col items-center gap-0.5 min-w-0 w-full">
       <div
-        className="w-8 h-8 rounded overflow-hidden bg-white/5 border-t-2 border border-white/10"
+        className="group relative w-full aspect-square rounded-lg overflow-hidden bg-white/5 border-t-2 border border-white/10"
         style={{ borderTopColor: primaryColor }}
       >
         {pokemon.dex_number ? (
@@ -596,8 +627,6 @@ function MiniPokemon({ pokemon }: { pokemon: PokemonWithMoves }) {
           <img
             src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemon.dex_number}.png`}
             alt={pokemon.name}
-            width={32}
-            height={32}
             className="w-full h-full object-cover"
             onError={(e) => {
               e.currentTarget.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemon.dex_number}.png`;
@@ -608,12 +637,20 @@ function MiniPokemon({ pokemon }: { pokemon: PokemonWithMoves }) {
             ?
           </div>
         )}
-      </div>
 
-      {/* Hover tooltip */}
-      <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-lg px-2 py-1 opacity-0 group-hover:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl whitespace-nowrap">
-        <p className="font-semibold text-white text-xs">{pokemon.name}</p>
+        {/* Point value badge */}
+        <span className="absolute bottom-0.5 right-0.5 bg-black/75 text-white text-[9px] font-bold leading-none px-1 py-0.5 rounded">
+          {pokemon.point_value}
+        </span>
+
+        {/* Hover tooltip */}
+        <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-lg px-2 py-1 opacity-0 group-hover:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl whitespace-nowrap">
+          <p className="font-semibold text-white text-xs">{pokemon.name}</p>
+        </div>
       </div>
+      <span className="text-[9px] text-gray-400 text-center w-full truncate leading-tight">
+        {pokemon.name}
+      </span>
     </div>
   );
 }

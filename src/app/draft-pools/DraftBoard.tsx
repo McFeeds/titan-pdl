@@ -257,6 +257,19 @@ interface Props {
   draftedByConference: { conferenceId: number; pokemonIds: number[] }[];
   userConferenceId: number | null;
   teams: TeamDraftInfo[];
+  draftLog: { id: number; conferenceId: number }[];
+  draftActiveByConference: { conferenceId: number; isActive: boolean }[];
+}
+
+// Snake draft: odd rounds go draftPosition 1→N, even rounds go N→1.
+function computeOnClockPosition(picksSoFar: number, teamCount: number): number | null {
+  if (teamCount === 0) return null;
+  const totalSlots = teamCount * DRAFT_SLOT_COUNT;
+  if (picksSoFar >= totalSlots) return null; // draft complete
+  const nextPick = picksSoFar + 1;
+  const round = Math.ceil(nextPick / teamCount);
+  const posInRound = ((nextPick - 1) % teamCount) + 1;
+  return round % 2 === 1 ? posInRound : teamCount + 1 - posInRound;
 }
 
 export default function DraftBoard({
@@ -266,6 +279,8 @@ export default function DraftBoard({
   draftedByConference: initialDrafted,
   userConferenceId,
   teams,
+  draftLog,
+  draftActiveByConference,
 }: Props) {
   const defaultConferenceId = userConferenceId ?? conferences[0]?.id ?? null;
   const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(defaultConferenceId);
@@ -293,6 +308,29 @@ export default function DraftBoard({
       return map;
     }
   );
+
+  // How many picks have been logged so far, per conference — drives turn tracking
+  const [pickCountMap, setPickCountMap] = useState<Record<number, number>>(() => {
+    const map: Record<number, number> = {};
+    for (const { conferenceId } of draftLog) {
+      map[conferenceId] = (map[conferenceId] ?? 0) + 1;
+    }
+    return map;
+  });
+
+  // draft_log DELETE payloads only carry the row id (not conference_id), so
+  // this tracks id -> conferenceId locally to know what to decrement.
+  const pickIdToConferenceRef = useRef<Map<number, number>>(
+    new Map(draftLog.map((d) => [d.id, d.conferenceId]))
+  );
+
+  const [draftActiveMap, setDraftActiveMap] = useState<Record<number, boolean>>(() => {
+    const map: Record<number, boolean> = {};
+    for (const { conferenceId, isActive } of draftActiveByConference) {
+      map[conferenceId] = isActive;
+    }
+    return map;
+  });
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -363,6 +401,53 @@ export default function DraftBoard({
           });
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "draft_log" },
+        (payload) => {
+          const row = payload.new as { id: number; season_id: number; conference_id: number };
+          if (row.season_id !== activeSeasonId) return;
+          pickIdToConferenceRef.current.set(row.id, row.conference_id);
+          setPickCountMap((prev) => ({
+            ...prev,
+            [row.conference_id]: (prev[row.conference_id] ?? 0) + 1,
+          }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "draft_log" },
+        (payload) => {
+          // DELETE payloads only guarantee the primary key (id), so the
+          // conference is looked up from what INSERT events already told us.
+          const row = payload.old as { id: number };
+          const conferenceId = pickIdToConferenceRef.current.get(row.id);
+          if (conferenceId === undefined) return;
+          pickIdToConferenceRef.current.delete(row.id);
+          setPickCountMap((prev) => ({
+            ...prev,
+            [conferenceId]: Math.max(0, (prev[conferenceId] ?? 0) - 1),
+          }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "conference_drafts" },
+        (payload) => {
+          const row = payload.new as { season_id: number; conference_id: number; is_active: boolean };
+          if (row.season_id !== activeSeasonId) return;
+          setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "conference_drafts" },
+        (payload) => {
+          const row = payload.new as { season_id: number; conference_id: number; is_active: boolean };
+          if (row.season_id !== activeSeasonId) return;
+          setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
+        }
+      )
       .subscribe();
 
     return () => {
@@ -407,6 +492,18 @@ export default function DraftBoard({
         .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999)),
     [teams, selectedConferenceId]
   );
+
+  const isDraftActive = selectedConferenceId !== null && !!draftActiveMap[selectedConferenceId];
+
+  const nextPickNumber = (selectedConferenceId !== null ? pickCountMap[selectedConferenceId] ?? 0 : 0) + 1;
+
+  const onClockTeamId = useMemo(() => {
+    if (!isDraftActive) return null;
+    const picksSoFar = selectedConferenceId !== null ? pickCountMap[selectedConferenceId] ?? 0 : 0;
+    const onClockPosition = computeOnClockPosition(picksSoFar, teamsForConference.length);
+    if (onClockPosition === null) return null;
+    return teamsForConference.find((t) => t.draftPosition === onClockPosition)?.id ?? null;
+  }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference]);
 
   return (
     <main className="pt-20 pb-16 min-h-screen">
@@ -521,6 +618,10 @@ export default function DraftBoard({
                 teams={teamsForConference}
                 teamRosterMap={teamRosterMap}
                 pokemonById={pokemonById}
+                isDraftActive={isDraftActive}
+                onClockTeamId={onClockTeamId}
+                nextPickNumber={nextPickNumber}
+                teamCount={teamsForConference.length}
               />
             </div>
           </div>
@@ -534,10 +635,18 @@ function TeamsView({
   teams,
   teamRosterMap,
   pokemonById,
+  isDraftActive,
+  onClockTeamId,
+  nextPickNumber,
+  teamCount,
 }: {
   teams: TeamDraftInfo[];
   teamRosterMap: Record<number, Set<number>>;
   pokemonById: Map<number, PokemonWithMoves>;
+  isDraftActive: boolean;
+  onClockTeamId: number | null;
+  nextPickNumber: number;
+  teamCount: number;
 }) {
   if (teams.length === 0) {
     return (
@@ -547,51 +656,89 @@ function TeamsView({
     );
   }
 
+  const totalSlots = teamCount * DRAFT_SLOT_COUNT;
+  const draftComplete = isDraftActive && nextPickNumber > totalSlots;
+  const round = teamCount > 0 ? Math.ceil(Math.min(nextPickNumber, totalSlots) / teamCount) : 0;
+
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pb-4">
-      {teams.map((team) => {
-        const pokemonIds = [...(teamRosterMap[team.id] ?? [])];
-        const pokemonList = pokemonIds
-          .map((id) => pokemonById.get(id))
-          .filter((p): p is PokemonWithMoves => !!p);
-        const spent = pokemonList.reduce((sum, p) => sum + p.point_value, 0);
-        const remaining = DRAFT_BUDGET - spent;
+    <div className="pb-4">
+      {isDraftActive && (
+        <div className="mb-4 flex items-center gap-2 text-sm">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+          </span>
+          <span className="text-red-400 font-bold tracking-wide">
+            {draftComplete
+              ? "DRAFT COMPLETE"
+              : `DRAFT LIVE — Round ${round}, Pick ${nextPickNumber}`}
+          </span>
+        </div>
+      )}
 
-        return (
-          <div
-            key={team.id}
-            className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col min-w-0"
-          >
-            <div className="flex items-center gap-2 mb-3">
-              <span className="flex items-center justify-center w-7 h-7 rounded-full bg-indigo-600 text-white text-xs font-bold shrink-0">
-                {team.draftPosition ?? "—"}
-              </span>
-              <span className="text-white text-base font-bold truncate min-w-0">
-                {team.name}
-              </span>
-            </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {teams.map((team) => {
+          const pokemonIds = [...(teamRosterMap[team.id] ?? [])];
+          const pokemonList = pokemonIds
+            .map((id) => pokemonById.get(id))
+            .filter((p): p is PokemonWithMoves => !!p);
+          const spent = pokemonList.reduce((sum, p) => sum + p.point_value, 0);
+          const remaining = DRAFT_BUDGET - spent;
+          const onClock = team.id === onClockTeamId;
 
-            <div className="grid grid-cols-6 gap-2">
-              {Array.from({ length: DRAFT_SLOT_COUNT }).map((_, i) => (
-                <DraftSlot key={i} slotNumber={i + 1} pokemon={pokemonList[i]} />
-              ))}
-            </div>
+          return (
+            <div
+              key={team.id}
+              className={`bg-white/5 border rounded-2xl p-4 flex flex-col min-w-0 transition-colors ${
+                onClock
+                  ? "border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/20"
+                  : "border-white/10"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <span
+                  className={`flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-bold shrink-0 ${
+                    onClock ? "bg-emerald-500" : "bg-indigo-600"
+                  }`}
+                >
+                  {team.draftPosition ?? "—"}
+                </span>
+                <span className="text-white text-base font-bold truncate min-w-0">
+                  {team.name}
+                </span>
+                {onClock && (
+                  <span className="ml-auto flex items-center gap-1 text-[10px] font-bold text-emerald-400 tracking-wide shrink-0">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                    </span>
+                    ON THE CLOCK
+                  </span>
+                )}
+              </div>
 
-            <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
-              <span className="text-gray-500">
-                Spent <span className="text-gray-300 font-semibold">{spent}</span>
-              </span>
-              <span
-                className={`font-bold ${
-                  remaining < 0 ? "text-red-400" : "text-emerald-400"
-                }`}
-              >
-                {remaining} left
-              </span>
+              <div className="grid grid-cols-6 gap-2">
+                {Array.from({ length: DRAFT_SLOT_COUNT }).map((_, i) => (
+                  <DraftSlot key={i} slotNumber={i + 1} pokemon={pokemonList[i]} />
+                ))}
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
+                <span className="text-gray-500">
+                  Spent <span className="text-gray-300 font-semibold">{spent}</span>
+                </span>
+                <span
+                  className={`font-bold ${
+                    remaining < 0 ? "text-red-400" : "text-emerald-400"
+                  }`}
+                >
+                  {remaining} left
+                </span>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
     </div>
   );
 }

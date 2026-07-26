@@ -134,6 +134,54 @@ CREATE INDEX idx_draft_log_season_conf ON draft_log (season_id, conference_id);
 
 
 -- ------------------------------------------------------------
+-- CONFERENCE DRAFTS
+-- Tracks whether a conference's draft is currently live for a season,
+-- so the public draft board can highlight whose turn it is.
+-- ------------------------------------------------------------
+CREATE TABLE conference_drafts (
+  season_id     INTEGER NOT NULL REFERENCES seasons(id),
+  conference_id INTEGER NOT NULL REFERENCES conferences(id),
+  is_active     BOOLEAN NOT NULL DEFAULT FALSE,
+  PRIMARY KEY (season_id, conference_id)
+);
+
+
+-- ------------------------------------------------------------
+-- RECORD DRAFT PICK
+-- Atomically adds a pokemon to a team's roster and appends the next
+-- sequential pick_number to draft_log. An advisory lock keyed on
+-- (season_id, conference_id) keeps concurrent picks from racing on
+-- the pick_number computation.
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION record_draft_pick(
+  p_season_id     INTEGER,
+  p_conference_id INTEGER,
+  p_team_id       INTEGER,
+  p_pokemon_id    INTEGER
+) RETURNS INTEGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_pick_number INTEGER;
+BEGIN
+  PERFORM pg_advisory_xact_lock(p_season_id, p_conference_id);
+
+  INSERT INTO rosters (pokemon_id, conference_id, season_id, team_id)
+  VALUES (p_pokemon_id, p_conference_id, p_season_id, p_team_id);
+
+  SELECT COALESCE(MAX(pick_number), 0) + 1 INTO v_pick_number
+  FROM draft_log
+  WHERE season_id = p_season_id AND conference_id = p_conference_id;
+
+  INSERT INTO draft_log (season_id, conference_id, pick_number, team_id, pokemon_id)
+  VALUES (p_season_id, p_conference_id, v_pick_number, p_team_id, p_pokemon_id);
+
+  RETURN v_pick_number;
+END;
+$$;
+
+
+-- ------------------------------------------------------------
 -- TRANSACTIONS  (header)
 -- ------------------------------------------------------------
 CREATE TABLE transactions (
@@ -319,6 +367,7 @@ ALTER TABLE groups           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rosters          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE draft_log        ENABLE ROW LEVEL SECURITY;
+ALTER TABLE conference_drafts   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transaction_items   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_seasons        ENABLE ROW LEVEL SECURITY;
@@ -336,6 +385,7 @@ CREATE POLICY "Public read" ON groups             FOR SELECT USING (true);
 CREATE POLICY "Public read" ON teams              FOR SELECT USING (true);
 CREATE POLICY "Public read" ON rosters            FOR SELECT USING (true);
 CREATE POLICY "Public read" ON draft_log          FOR SELECT USING (true);
+CREATE POLICY "Public read" ON conference_drafts  FOR SELECT USING (true);
 CREATE POLICY "Public read" ON transactions       FOR SELECT USING (true);
 CREATE POLICY "Public read" ON transaction_items  FOR SELECT USING (true);
 CREATE POLICY "Public read" ON team_seasons       FOR SELECT USING (true);
@@ -343,3 +393,10 @@ CREATE POLICY "Public read" ON team_members       FOR SELECT USING (true);
 CREATE POLICY "Public read" ON matches            FOR SELECT USING (true);
 CREATE POLICY "Public read" ON match_games        FOR SELECT USING (true);
 CREATE POLICY "Public read" ON match_game_pokemon FOR SELECT USING (true);
+
+
+-- ============================================================
+-- REALTIME
+-- Tables the client subscribes to via postgres_changes.
+-- ============================================================
+ALTER PUBLICATION supabase_realtime ADD TABLE rosters, draft_log, conference_drafts;

@@ -18,11 +18,30 @@ export async function addRosterEntry(prevState: State, formData: FormData): Prom
   }
 
   const admin = createAdminClient();
-  const { error } = await admin
-    .from("rosters")
-    .insert({ season_id, team_id, pokemon_id, conference_id });
 
-  if (error) return { error: error.message };
+  const { data: draftState } = await admin
+    .from("conference_drafts")
+    .select("is_active")
+    .eq("season_id", season_id)
+    .eq("conference_id", conference_id)
+    .maybeSingle();
+
+  if (draftState?.is_active) {
+    // Draft is live for this conference — record it as a pick so the
+    // public board's turn tracker advances, in addition to the roster add.
+    const { error } = await admin.rpc("record_draft_pick", {
+      p_season_id: season_id,
+      p_conference_id: conference_id,
+      p_team_id: team_id,
+      p_pokemon_id: pokemon_id,
+    });
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await admin
+      .from("rosters")
+      .insert({ season_id, team_id, pokemon_id, conference_id });
+    if (error) return { error: error.message };
+  }
 
   revalidatePath("/admin/rosters");
   return null;
@@ -42,6 +61,31 @@ export async function removeRosterEntry(formData: FormData) {
     .eq("season_id", season_id)
     .eq("conference_id", conference_id)
     .eq("pokemon_id", pokemon_id);
+
+  // Clean up the matching pick if this was logged as part of a live draft,
+  // so a corrected pick doesn't leave a permanent gap in the turn order.
+  await admin
+    .from("draft_log")
+    .delete()
+    .eq("season_id", season_id)
+    .eq("conference_id", conference_id)
+    .eq("pokemon_id", pokemon_id);
+
+  revalidatePath("/admin/rosters");
+}
+
+export async function setDraftActive(seasonId: number, conferenceId: number, isActive: boolean) {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("conference_drafts")
+    .upsert(
+      { season_id: seasonId, conference_id: conferenceId, is_active: isActive },
+      { onConflict: "season_id,conference_id" }
+    );
+
+  if (error) throw new Error(error.message);
 
   revalidatePath("/admin/rosters");
 }

@@ -16,6 +16,8 @@ export default async function DraftPoolsPage() {
     { data: rosters },
     { data: teamSeasons },
     { data: authData },
+    { data: draftLog },
+    { data: draftStates },
   ] = await Promise.all([
     supabase.from("conferences").select("id, name").order("name"),
     supabase
@@ -35,6 +37,8 @@ export default async function DraftPoolsPage() {
       .select("team_id, conference_id, draft_position, season_id, teams(team_name)")
       .order("draft_position"),
     supabase.auth.getUser(),
+    supabase.from("draft_log").select("id, season_id, conference_id"),
+    supabase.from("conference_drafts").select("season_id, conference_id, is_active"),
   ]);
 
   const activeSeasonId = activeSeason?.id ?? null;
@@ -104,6 +108,18 @@ export default async function DraftPoolsPage() {
     .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  // Picks logged so far this season, for turn-order tracking on the board
+  const draftLogEntries = (draftLog ?? [])
+    .filter((d) => d.season_id === activeSeasonId)
+    .map((d) => ({ id: d.id, conferenceId: d.conference_id }));
+
+  const draftActiveByConference = (conferences ?? []).map((conf) => ({
+    conferenceId: conf.id,
+    isActive: (draftStates ?? []).some(
+      (d) => d.season_id === activeSeasonId && d.conference_id === conf.id && d.is_active
+    ),
+  }));
+
   return (
     <DraftBoard
       conferences={conferences ?? []}
@@ -112,6 +128,8 @@ export default async function DraftPoolsPage() {
       draftedByConference={draftedByConference}
       userConferenceId={userConferenceId}
       teams={teams}
+      draftLog={draftLogEntries}
+      draftActiveByConference={draftActiveByConference}
     />
   );
 }

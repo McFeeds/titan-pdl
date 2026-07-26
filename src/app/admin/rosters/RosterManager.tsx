@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { addRosterEntry, removeRosterEntry } from "./actions";
+import { addRosterEntry, removeRosterEntry, setDraftActive } from "./actions";
 
 const selectCls =
   "px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
@@ -10,6 +10,8 @@ type Season = { id: number; name: string };
 type Team = { id: number; team_name: string };
 type TeamSeason = { team_id: number; season_id: number; conference_id: number };
 type Pokemon = { id: number; name: string };
+type Conference = { id: number; name: string };
+type DraftState = { season_id: number; conference_id: number; is_active: boolean };
 type RosterEntry = {
   pokemon_id: number;
   season_id: number;
@@ -24,19 +26,34 @@ type Props = {
   teamSeasons: TeamSeason[];
   pokemon: Pokemon[];
   roster: RosterEntry[];
+  conferences: Conference[];
+  draftStates: DraftState[];
 };
 
-export default function RosterManager({ seasons, teams, teamSeasons, pokemon, roster }: Props) {
+export default function RosterManager({
+  seasons, teams, teamSeasons, pokemon, roster, conferences, draftStates,
+}: Props) {
   const [seasonId, setSeasonId] = useState("");
   const [teamId, setTeamId] = useState("");
   const [state, formAction, pending] = useActionState(addRosterEntry, null);
   const [removePending, startRemove] = useTransition();
+  const [togglePending, startToggle] = useTransition();
 
   // Derive conference_id from team_seasons for the selected team+season
   const teamSeason = teamSeasons.find(
     (ts) => ts.team_id === Number(teamId) && ts.season_id === Number(seasonId)
   );
   const conferenceId = teamSeason?.conference_id ?? null;
+
+  const isDraftActive = draftStates.some(
+    (d) => d.season_id === Number(seasonId) && d.conference_id === conferenceId && d.is_active
+  );
+
+  function handleToggleDraft(confId: number, nextActive: boolean) {
+    startToggle(async () => {
+      await setDraftActive(Number(seasonId), confId, nextActive);
+    });
+  }
 
   const currentRoster = roster.filter(
     (r) => r.season_id === Number(seasonId) && r.team_id === Number(teamId)
@@ -79,6 +96,44 @@ export default function RosterManager({ seasons, teams, teamSeasons, pokemon, ro
         </div>
       </div>
 
+      {/* Draft status — per-conference live toggle */}
+      {seasonId && (
+        <div>
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
+            Draft Status
+          </h2>
+          <div className="flex items-center gap-3 flex-wrap">
+            {conferences.map((conf) => {
+              const active = draftStates.some(
+                (d) => d.season_id === Number(seasonId) && d.conference_id === conf.id && d.is_active
+              );
+              return (
+                <div
+                  key={conf.id}
+                  className="flex items-center gap-3 px-3 py-2 bg-white/5 border border-white/10 rounded-lg"
+                >
+                  <span className="text-white text-sm font-medium">{conf.name}</span>
+                  <span className={`text-xs font-semibold ${active ? "text-emerald-400" : "text-gray-500"}`}>
+                    {active ? "● Live" : "Inactive"}
+                  </span>
+                  <button
+                    onClick={() => handleToggleDraft(conf.id, !active)}
+                    disabled={togglePending}
+                    className={`text-xs font-semibold px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 ${
+                      active
+                        ? "bg-red-500/20 text-red-400 hover:bg-red-500/40"
+                        : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/40"
+                    }`}
+                  >
+                    {active ? "End Draft" : "Start Draft"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {seasonId && teamId && (
         <>
           {/* Current roster */}
@@ -111,8 +166,13 @@ export default function RosterManager({ seasons, teams, teamSeasons, pokemon, ro
 
           {/* Add pokemon */}
           <div>
-            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-2">
               Add Pokémon
+              {isDraftActive && (
+                <span className="text-emerald-400 text-[10px] font-bold tracking-wide normal-case">
+                  ● will be logged as the next draft pick
+                </span>
+              )}
             </h2>
             <form action={formAction} className="flex items-start gap-3">
               <input type="hidden" name="season_id" value={seasonId} />

@@ -7,7 +7,16 @@ export const metadata = { title: "Draft Pools | Titan PDL" };
 export default async function DraftPoolsPage() {
   const supabase = await createClient();
 
-  const [{ data: conferences }, { data: activeSeason }] = await Promise.all([
+  // Fire every independent query in one batch — none of these depend on
+  // each other, so running them as a waterfall was pure wasted latency.
+  const [
+    { data: conferences },
+    { data: activeSeason },
+    { data: rawPokemon },
+    { data: rosters },
+    { data: teamSeasons },
+    { data: authData },
+  ] = await Promise.all([
     supabase.from("conferences").select("id, name").order("name"),
     supabase
       .from("seasons")
@@ -15,16 +24,6 @@ export default async function DraftPoolsPage() {
       .eq("is_active", true)
       .limit(1)
       .maybeSingle(),
-  ]);
-
-  const activeSeasonId = activeSeason?.id ?? null;
-
-  const [
-    { data: rawPokemon },
-    { data: rosters },
-    { data: teamSeasons },
-    { data: authData },
-  ] = await Promise.all([
     supabase
       .from("pokemon")
       .select("*, pokemon_moves(important_moves(id, name, slug))")
@@ -33,11 +32,12 @@ export default async function DraftPoolsPage() {
     supabase.from("rosters").select("pokemon_id, conference_id, season_id, team_id"),
     supabase
       .from("team_seasons")
-      .select("team_id, conference_id, draft_position, teams(team_name)")
-      .eq("season_id", activeSeasonId ?? -1)
+      .select("team_id, conference_id, draft_position, season_id, teams(team_name)")
       .order("draft_position"),
     supabase.auth.getUser(),
   ]);
+
+  const activeSeasonId = activeSeason?.id ?? null;
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const pokemon: PokemonWithMoves[] = (rawPokemon ?? []).map((p: any) => ({
@@ -88,6 +88,7 @@ export default async function DraftPoolsPage() {
   // Build per-team draft order + current roster for the active season
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const teams = (teamSeasons ?? [])
+    .filter((ts: any) => ts.season_id === activeSeasonId)
     .map((ts: any) => {
       const teamRow = Array.isArray(ts.teams) ? ts.teams[0] : ts.teams;
       return {

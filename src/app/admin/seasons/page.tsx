@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createSeason, setActiveSeason, deleteSeason } from "./actions";
 import SeasonsForm from "./SeasonsForm";
+import SeasonConfigInputs from "./SeasonConfigInputs";
 import ConfirmDeleteButton from "@/components/ConfirmDeleteButton";
 
 export default async function AdminSeasonsPage() {
@@ -31,6 +32,7 @@ export default async function AdminSeasonsPage() {
               <tr className="text-left text-gray-400 text-xs uppercase tracking-wide">
                 <th className="pb-3 pr-6">Name</th>
                 <th className="pb-3 pr-6">Status</th>
+                <th className="pb-3 pr-6">Draft Config</th>
                 <th className="pb-3" />
               </tr>
             </thead>
@@ -46,6 +48,13 @@ export default async function AdminSeasonsPage() {
                     ) : (
                       <span className="text-gray-500 text-xs">Inactive</span>
                     )}
+                  </td>
+                  <td className="py-3 pr-6">
+                    <SeasonConfigInputs
+                      id={season.id}
+                      pointBudget={season.point_budget}
+                      faTokens={season.fa_tokens}
+                    />
                   </td>
                   <td className="py-3">
                     <div className="flex items-center gap-4">

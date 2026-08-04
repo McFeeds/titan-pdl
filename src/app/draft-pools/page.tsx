@@ -18,11 +18,13 @@ export default async function DraftPoolsPage() {
     { data: authData },
     { data: draftLog },
     { data: draftStates },
+    { data: transactions },
+    { data: transactionItems },
   ] = await Promise.all([
     supabase.from("conferences").select("id, name").order("name"),
     supabase
       .from("seasons")
-      .select("id")
+      .select("id, point_budget, fa_tokens")
       .eq("is_active", true)
       .limit(1)
       .maybeSingle(),
@@ -38,10 +40,14 @@ export default async function DraftPoolsPage() {
       .order("draft_position"),
     supabase.auth.getUser(),
     supabase.from("draft_log").select("id, season_id, conference_id"),
-    supabase.from("conference_drafts").select("season_id, conference_id, is_active"),
+    supabase.from("conference_drafts").select("season_id, conference_id, is_active, started_at"),
+    supabase.from("transactions").select("id, season_id, type"),
+    supabase.from("transaction_items").select("transaction_id, team_id, action"),
   ]);
 
   const activeSeasonId = activeSeason?.id ?? null;
+  const pointBudget = activeSeason?.point_budget ?? 115;
+  const faTokens = activeSeason?.fa_tokens ?? 3;
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const pokemon: PokemonWithMoves[] = (rawPokemon ?? []).map((p: any) => ({
@@ -52,8 +58,9 @@ export default async function DraftPoolsPage() {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // Determine user's conference if logged in
+  // Determine user's team + conference if logged in
   let userConferenceId: number | null = null;
+  let userTeamId: number | null = null;
   const user = authData?.user;
   if (user) {
     const discordUsername =
@@ -74,7 +81,10 @@ export default async function DraftPoolsPage() {
           .eq("team_id", membership.team_id)
           .eq("season_id", activeSeason.id)
           .maybeSingle();
-        userConferenceId = placement?.conference_id ?? null;
+        if (placement) {
+          userConferenceId = placement.conference_id;
+          userTeamId = membership.team_id;
+        }
       }
     }
   }
@@ -113,12 +123,28 @@ export default async function DraftPoolsPage() {
     .filter((d) => d.season_id === activeSeasonId)
     .map((d) => ({ id: d.id, conferenceId: d.conference_id }));
 
-  const draftActiveByConference = (conferences ?? []).map((conf) => ({
-    conferenceId: conf.id,
-    isActive: (draftStates ?? []).some(
-      (d) => d.season_id === activeSeasonId && d.conference_id === conf.id && d.is_active
-    ),
-  }));
+  const draftActiveByConference = (conferences ?? []).map((conf) => {
+    const state = (draftStates ?? []).find(
+      (d) => d.season_id === activeSeasonId && d.conference_id === conf.id
+    );
+    return {
+      conferenceId: conf.id,
+      isActive: state?.is_active ?? false,
+      startedAt: state?.started_at ?? null,
+    };
+  });
+
+  // Free agency tokens used so far this season, per team
+  const seasonTransactionIds = new Set(
+    (transactions ?? [])
+      .filter((t) => t.season_id === activeSeasonId && t.type === "free_agency")
+      .map((t) => t.id)
+  );
+  const faTokensUsedByTeam: Record<number, number> = {};
+  for (const item of transactionItems ?? []) {
+    if (item.action !== "add" || !seasonTransactionIds.has(item.transaction_id)) continue;
+    faTokensUsedByTeam[item.team_id] = (faTokensUsedByTeam[item.team_id] ?? 0) + 1;
+  }
 
   return (
     <DraftBoard
@@ -127,9 +153,13 @@ export default async function DraftPoolsPage() {
       activeSeasonId={activeSeasonId}
       draftedByConference={draftedByConference}
       userConferenceId={userConferenceId}
+      userTeamId={userTeamId}
       teams={teams}
       draftLog={draftLogEntries}
       draftActiveByConference={draftActiveByConference}
+      pointBudget={pointBudget}
+      faTokens={faTokens}
+      faTokensUsedByTeam={faTokensUsedByTeam}
     />
   );
 }

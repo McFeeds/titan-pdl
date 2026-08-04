@@ -78,12 +78,11 @@ export async function setDraftActive(seasonId: number, conferenceId: number, isA
   await requireAdmin();
 
   const admin = createAdminClient();
-  const { error } = await admin
-    .from("conference_drafts")
-    .upsert(
-      { season_id: seasonId, conference_id: conferenceId, is_active: isActive },
-      { onConflict: "season_id,conference_id" }
-    );
+  const { error } = await admin.rpc("set_conference_draft_active", {
+    p_season_id: seasonId,
+    p_conference_id: conferenceId,
+    p_is_active: isActive,
+  });
 
   if (error) throw new Error(error.message);
 

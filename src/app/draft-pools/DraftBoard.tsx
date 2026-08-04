@@ -1,9 +1,12 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import { DRAFT_BUDGET, DRAFT_SLOT_COUNT } from "@/lib/draft";
+import { computeOnClockPosition, DRAFT_SLOT_COUNT } from "@/lib/draft";
 import { getEffectiveness, POKEMON_TYPES, TYPE_COLORS } from "@/lib/pokemon-types";
 import { Conference, PokemonWithMoves } from "@/types/database";
+import { addFreeAgent, submitDraftPick } from "@/lib/roster-actions";
+import DraftPickModal from "@/components/DraftPickModal";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 // Diagonal split gradient per conference, matching the paired game versions
@@ -256,21 +259,15 @@ interface Props {
   activeSeasonId: number | null;
   draftedByConference: { conferenceId: number; pokemonIds: number[] }[];
   userConferenceId: number | null;
+  userTeamId: number | null;
   teams: TeamDraftInfo[];
   draftLog: { id: number; conferenceId: number }[];
-  draftActiveByConference: { conferenceId: number; isActive: boolean }[];
+  draftActiveByConference: { conferenceId: number; isActive: boolean; startedAt: string | null }[];
+  pointBudget: number;
+  faTokens: number;
+  faTokensUsedByTeam: Record<number, number>;
 }
 
-// Snake draft: odd rounds go draftPosition 1→N, even rounds go N→1.
-function computeOnClockPosition(picksSoFar: number, teamCount: number): number | null {
-  if (teamCount === 0) return null;
-  const totalSlots = teamCount * DRAFT_SLOT_COUNT;
-  if (picksSoFar >= totalSlots) return null; // draft complete
-  const nextPick = picksSoFar + 1;
-  const round = Math.ceil(nextPick / teamCount);
-  const posInRound = ((nextPick - 1) % teamCount) + 1;
-  return round % 2 === 1 ? posInRound : teamCount + 1 - posInRound;
-}
 
 export default function DraftBoard({
   conferences,
@@ -278,10 +275,15 @@ export default function DraftBoard({
   activeSeasonId,
   draftedByConference: initialDrafted,
   userConferenceId,
+  userTeamId,
   teams,
   draftLog,
   draftActiveByConference,
+  pointBudget,
+  faTokens,
+  faTokensUsedByTeam: initialFaTokensUsedByTeam,
 }: Props) {
+  const router = useRouter();
   const defaultConferenceId = userConferenceId ?? conferences[0]?.id ?? null;
   const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(defaultConferenceId);
   const [view, setView] = useState<"pool" | "teams">("pool");
@@ -331,6 +333,21 @@ export default function DraftBoard({
     }
     return map;
   });
+
+  // Set once a conference's draft has ever been started — distinguishes
+  // "not started yet" (locked) from "ended" (free agency open).
+  const [draftStartedMap, setDraftStartedMap] = useState<Record<number, string | null>>(() => {
+    const map: Record<number, string | null> = {};
+    for (const { conferenceId, startedAt } of draftActiveByConference) {
+      map[conferenceId] = startedAt;
+    }
+    return map;
+  });
+
+  const [faTokensUsedByTeam, setFaTokensUsedByTeam] = useState(initialFaTokensUsedByTeam);
+
+  // Modal state for the pool-tab click-to-draft/add flow
+  const [pickingPokemon, setPickingPokemon] = useState<PokemonWithMoves | null>(null);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -434,18 +451,30 @@ export default function DraftBoard({
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "conference_drafts" },
         (payload) => {
-          const row = payload.new as { season_id: number; conference_id: number; is_active: boolean };
+          const row = payload.new as {
+            season_id: number;
+            conference_id: number;
+            is_active: boolean;
+            started_at: string | null;
+          };
           if (row.season_id !== activeSeasonId) return;
           setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
+          setDraftStartedMap((prev) => ({ ...prev, [row.conference_id]: row.started_at }));
         }
       )
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "conference_drafts" },
         (payload) => {
-          const row = payload.new as { season_id: number; conference_id: number; is_active: boolean };
+          const row = payload.new as {
+            season_id: number;
+            conference_id: number;
+            is_active: boolean;
+            started_at: string | null;
+          };
           if (row.season_id !== activeSeasonId) return;
           setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
+          setDraftStartedMap((prev) => ({ ...prev, [row.conference_id]: row.started_at }));
         }
       )
       .subscribe();
@@ -504,6 +533,54 @@ export default function DraftBoard({
     if (onClockPosition === null) return null;
     return teamsForConference.find((t) => t.draftPosition === onClockPosition)?.id ?? null;
   }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference]);
+
+  // Click-to-draft is only interactive while viewing your own conference —
+  // every other case (other conference, logged out) stays view-only.
+  const isViewingOwnConference =
+    userTeamId !== null && selectedConferenceId !== null && selectedConferenceId === userConferenceId;
+  const selectedDraftStarted = selectedConferenceId !== null ? draftStartedMap[selectedConferenceId] : null;
+  const clickMode: "draft" | "add" | null = !isViewingOwnConference
+    ? null
+    : isDraftActive
+      ? "draft"
+      : selectedDraftStarted
+        ? "add"
+        : null;
+
+  const myTeamPokemonIds = userTeamId !== null ? teamRosterMap[userTeamId] ?? new Set<number>() : new Set<number>();
+  const myTeamSpent = [...myTeamPokemonIds].reduce(
+    (sum, id) => sum + (pokemonById.get(id)?.point_value ?? 0),
+    0
+  );
+  const myFaTokensUsed = userTeamId !== null ? faTokensUsedByTeam[userTeamId] ?? 0 : 0;
+
+  const myTeamRosterSize = myTeamPokemonIds.size;
+
+  const pickingDisabledReason = useMemo(() => {
+    if (!pickingPokemon || clickMode === null) return null;
+    if (clickMode === "draft" && onClockTeamId !== userTeamId) return "It's not your team's turn to pick.";
+    if (myTeamRosterSize >= DRAFT_SLOT_COUNT) return "Your roster is full.";
+    if (myTeamSpent + pickingPokemon.point_value > pointBudget) return "Not enough points remaining.";
+    if (clickMode === "add" && myFaTokensUsed >= faTokens) return "No free agency tokens remaining.";
+    return null;
+  }, [pickingPokemon, clickMode, onClockTeamId, userTeamId, myTeamRosterSize, myTeamSpent, pointBudget, myFaTokensUsed, faTokens]);
+
+  async function handleConfirmPick() {
+    if (!pickingPokemon || clickMode === null) return { error: "Nothing to submit" };
+    const result =
+      clickMode === "draft"
+        ? await submitDraftPick(pickingPokemon.id)
+        : await addFreeAgent(pickingPokemon.id);
+    if (!result.error && userTeamId !== null && clickMode === "add") {
+      setFaTokensUsedByTeam((prev) => ({ ...prev, [userTeamId]: (prev[userTeamId] ?? 0) + 1 }));
+    }
+    return result;
+  }
+
+  function handleClosePickModal() {
+    setPickingPokemon(null);
+    router.refresh();
+  }
 
   return (
     <main className="pt-20 pb-16 min-h-screen">
@@ -604,6 +681,8 @@ export default function DraftBoard({
                       key={p.id}
                       pokemon={p}
                       isDrafted={draftedIds.has(p.id)}
+                      clickable={clickMode !== null}
+                      onClick={clickMode !== null ? () => setPickingPokemon(p) : undefined}
                     />
                   ))}
                 </div>
@@ -622,11 +701,25 @@ export default function DraftBoard({
                 onClockTeamId={onClockTeamId}
                 nextPickNumber={nextPickNumber}
                 teamCount={teamsForConference.length}
+                pointBudget={pointBudget}
               />
             </div>
           </div>
         )}
       </div>
+
+      {pickingPokemon && clickMode !== null && (
+        <DraftPickModal
+          pokemon={pickingPokemon}
+          mode={clickMode}
+          currentSpent={myTeamSpent}
+          pointBudget={pointBudget}
+          faTokensRemaining={clickMode === "add" ? faTokens - myFaTokensUsed : null}
+          disabledReason={pickingDisabledReason}
+          onConfirm={handleConfirmPick}
+          onClose={handleClosePickModal}
+        />
+      )}
     </main>
   );
 }
@@ -639,6 +732,7 @@ function TeamsView({
   onClockTeamId,
   nextPickNumber,
   teamCount,
+  pointBudget,
 }: {
   teams: TeamDraftInfo[];
   teamRosterMap: Record<number, Set<number>>;
@@ -647,6 +741,7 @@ function TeamsView({
   onClockTeamId: number | null;
   nextPickNumber: number;
   teamCount: number;
+  pointBudget: number;
 }) {
   if (teams.length === 0) {
     return (
@@ -683,7 +778,7 @@ function TeamsView({
             .map((id) => pokemonById.get(id))
             .filter((p): p is PokemonWithMoves => !!p);
           const spent = pokemonList.reduce((sum, p) => sum + p.point_value, 0);
-          const remaining = DRAFT_BUDGET - spent;
+          const remaining = pointBudget - spent;
           const onClock = team.id === onClockTeamId;
 
           return (
@@ -805,21 +900,29 @@ function DraftSlot({
 function PokemonCard({
   pokemon,
   isDrafted,
+  clickable,
+  onClick,
 }: {
   pokemon: PokemonWithMoves;
   isDrafted: boolean;
+  clickable?: boolean;
+  onClick?: () => void;
 }) {
   const types = [pokemon.type_1, pokemon.type_2].filter(Boolean) as string[];
   const primaryColor = TYPE_COLORS[pokemon.type_1] ?? "#6b7280";
+  const isInteractive = clickable && !isDrafted;
 
   return (
     <div className="group relative flex flex-col items-center">
       {/* Card */}
       <div
+        onClick={isInteractive ? onClick : undefined}
         className={`relative w-[72px] rounded-lg overflow-hidden border-t-2 border border-white/10 transition-all duration-200 ${
           isDrafted
             ? "opacity-25 grayscale"
-            : "hover:scale-110 hover:z-10 hover:border-white/20 cursor-pointer"
+            : isInteractive
+              ? "hover:scale-110 hover:z-10 hover:ring-2 hover:ring-indigo-400 cursor-pointer"
+              : "hover:scale-110 hover:z-10 hover:border-white/20 cursor-pointer"
         }`}
         style={{ borderTopColor: isDrafted ? "transparent" : primaryColor }}
       >

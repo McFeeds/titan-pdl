@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import type { RosterPokemon } from "@/types/database";
-import MyTeamView from "./MyTeamView";
+import MyTeamView, { type DraftMode } from "./MyTeamView";
 
 export const metadata = { title: "My Team | Titan PDL" };
 
@@ -37,7 +37,7 @@ export default async function MyTeamPage() {
   // Active season
   const { data: activeSeason } = await supabase
     .from("seasons")
-    .select("id, name")
+    .select("id, name, point_budget, fa_tokens")
     .eq("is_active", true)
     .limit(1)
     .maybeSingle();
@@ -57,12 +57,17 @@ export default async function MyTeamPage() {
 
   const teamId = membership.team_id;
 
-  // Parallel fetch: team info, roster, matches+games, pokemon stats
+  // Parallel fetch: team info, roster, matches+games, pokemon stats, this
+  // team's conference placement, the full pokemon list, and FA token usage.
   const [
     { data: teamData },
     { data: rawRoster },
     { data: rawMatches },
     { data: pokemonStats },
+    { data: teamSeason },
+    { data: allPokemon },
+    { data: transactions },
+    { data: transactionItems },
   ] = await Promise.all([
     supabase
       .from("teams")
@@ -89,7 +94,56 @@ export default async function MyTeamPage() {
       .select("pokemon_id, brought, kills, deaths")
       .eq("team_id", teamId)
       .eq("season_id", activeSeason.id),
+
+    supabase
+      .from("team_seasons")
+      .select("conference_id, draft_position")
+      .eq("team_id", teamId)
+      .eq("season_id", activeSeason.id)
+      .maybeSingle(),
+
+    supabase
+      .from("pokemon")
+      .select("id, name, dex_number, type_1, type_2, point_value")
+      .order("name"),
+
+    supabase.from("transactions").select("id, season_id, type"),
+    supabase.from("transaction_items").select("transaction_id, team_id, action"),
   ]);
+
+  // Conference-scoped data (draft state, roster-wide pokemon, team count)
+  // needs the conference_id resolved above, so it's a second phase.
+  const conferenceId = teamSeason?.conference_id ?? null;
+  const [
+    { data: draftState },
+    { data: conferenceRosters },
+    { data: conferenceTeamSeasons },
+    { data: draftLog },
+  ] = conferenceId
+    ? await Promise.all([
+        supabase
+          .from("conference_drafts")
+          .select("is_active, started_at")
+          .eq("season_id", activeSeason.id)
+          .eq("conference_id", conferenceId)
+          .maybeSingle(),
+        supabase
+          .from("rosters")
+          .select("pokemon_id")
+          .eq("season_id", activeSeason.id)
+          .eq("conference_id", conferenceId),
+        supabase
+          .from("team_seasons")
+          .select("team_id")
+          .eq("season_id", activeSeason.id)
+          .eq("conference_id", conferenceId),
+        supabase
+          .from("draft_log")
+          .select("id")
+          .eq("season_id", activeSeason.id)
+          .eq("conference_id", conferenceId),
+      ])
+    : [{ data: null }, { data: null }, { data: null }, { data: null }];
 
   // Collect opponent team IDs and fetch them in one query
   const opponentIds = new Set<number>();
@@ -150,6 +204,42 @@ export default async function MyTeamPage() {
 
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  // Draft mode: never started -> locked, active -> drafting, ended -> free agency
+  let draftMode: DraftMode = "pre_draft";
+  if (draftState?.is_active) draftMode = "drafting";
+  else if (draftState?.started_at) draftMode = "free_agency";
+
+  // Undrafted pokemon in this team's conference, for the add picker
+  const rosteredIds = new Set((conferenceRosters ?? []).map((r) => r.pokemon_id));
+  const undraftedPokemon = (allPokemon ?? []).filter((p) => !rosteredIds.has(p.id));
+
+  // Whether this team is currently on the clock (drafting mode only)
+  let isOnClock = false;
+  if (draftMode === "drafting" && teamSeason?.draft_position && conferenceTeamSeasons) {
+    const teamCount = conferenceTeamSeasons.length;
+    const picksSoFar = draftLog?.length ?? 0;
+    const totalSlots = teamCount * 12;
+    if (picksSoFar < totalSlots) {
+      const nextPick = picksSoFar + 1;
+      const round = Math.ceil(nextPick / teamCount);
+      const posInRound = ((nextPick - 1) % teamCount) + 1;
+      const onClockPosition = round % 2 === 1 ? posInRound : teamCount + 1 - posInRound;
+      isOnClock = onClockPosition === teamSeason.draft_position;
+    }
+  }
+
+  // FA tokens used so far this season
+  const seasonTransactionIds = new Set(
+    (transactions ?? [])
+      .filter((t) => t.season_id === activeSeason.id && t.type === "free_agency")
+      .map((t) => t.id)
+  );
+  const faTokensUsed = (transactionItems ?? []).filter(
+    (item) => item.team_id === teamId && item.action === "add" && seasonTransactionIds.has(item.transaction_id)
+  ).length;
+
+  const pointsSpent = roster.reduce((sum, p) => sum + p.point_value, 0);
+
   return (
     <MyTeamView
       team={teamData!}
@@ -163,6 +253,13 @@ export default async function MyTeamPage() {
           wins: schedule.filter((e) => e.my_games_won >= 2).length,
           losses: schedule.filter((e) => e.opp_games_won >= 2).length,
         }}
+      draftMode={draftMode}
+      isOnClock={isOnClock}
+      pointBudget={activeSeason.point_budget}
+      pointsSpent={pointsSpent}
+      faTokens={activeSeason.fa_tokens}
+      faTokensUsed={faTokensUsed}
+      undraftedPokemon={undraftedPokemon ?? []}
     />
   );
 }

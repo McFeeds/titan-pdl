@@ -23,6 +23,22 @@ export default function SeasonsForm({
           <p className="text-red-400 text-xs">{state.error}</p>
         )}
       </div>
+      <input
+        name="point_budget"
+        type="number"
+        defaultValue={115}
+        placeholder="Point budget"
+        title="Point budget"
+        className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-32"
+      />
+      <input
+        name="fa_tokens"
+        type="number"
+        defaultValue={3}
+        placeholder="FA tokens"
+        title="FA tokens"
+        className="px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 w-28"
+      />
       <button
         type="submit"
         disabled={pending}

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { computeOnClockTeamId } from "@/lib/draft";
 import type { RosterPokemon } from "@/types/database";
 import MyTeamView, { type DraftMode } from "./MyTeamView";
 
@@ -97,7 +98,7 @@ export default async function MyTeamPage() {
 
     supabase
       .from("team_seasons")
-      .select("conference_id, draft_position")
+      .select("conference_id, draft_position, draft_ended_at")
       .eq("team_id", teamId)
       .eq("season_id", activeSeason.id)
       .maybeSingle(),
@@ -134,12 +135,12 @@ export default async function MyTeamPage() {
           .eq("conference_id", conferenceId),
         supabase
           .from("team_seasons")
-          .select("team_id")
+          .select("team_id, draft_position, draft_ended_at")
           .eq("season_id", activeSeason.id)
           .eq("conference_id", conferenceId),
         supabase
           .from("draft_log")
-          .select("id")
+          .select("team_id")
           .eq("season_id", activeSeason.id)
           .eq("conference_id", conferenceId),
       ])
@@ -213,20 +214,26 @@ export default async function MyTeamPage() {
   const rosteredIds = new Set((conferenceRosters ?? []).map((r) => r.pokemon_id));
   const undraftedPokemon = (allPokemon ?? []).filter((p) => !rosteredIds.has(p.id));
 
-  // Whether this team is currently on the clock (drafting mode only)
+  // Whether this team is currently on the clock (drafting mode only) —
+  // uses the same skip-aware turn math as the public draft board, so a
+  // team that ended early is correctly never shown as on the clock.
   let isOnClock = false;
-  if (draftMode === "drafting" && teamSeason?.draft_position && conferenceTeamSeasons) {
-    const teamCount = conferenceTeamSeasons.length;
+  if (draftMode === "drafting" && conferenceTeamSeasons) {
     const picksSoFar = draftLog?.length ?? 0;
-    const totalSlots = teamCount * 12;
-    if (picksSoFar < totalSlots) {
-      const nextPick = picksSoFar + 1;
-      const round = Math.ceil(nextPick / teamCount);
-      const posInRound = ((nextPick - 1) % teamCount) + 1;
-      const onClockPosition = round % 2 === 1 ? posInRound : teamCount + 1 - posInRound;
-      isOnClock = onClockPosition === teamSeason.draft_position;
+    const picksMadeByTeam = new Map<number, number>();
+    for (const row of draftLog ?? []) {
+      picksMadeByTeam.set(row.team_id, (picksMadeByTeam.get(row.team_id) ?? 0) + 1);
     }
+    const teamStates = conferenceTeamSeasons.map((ts) => ({
+      id: ts.team_id,
+      draftPosition: ts.draft_position,
+      draftEnded: ts.draft_ended_at !== null,
+      picksMade: picksMadeByTeam.get(ts.team_id) ?? 0,
+    }));
+    isOnClock = computeOnClockTeamId(teamStates, picksSoFar) === teamId;
   }
+
+  const myDraftEnded = teamSeason?.draft_ended_at !== null && teamSeason?.draft_ended_at !== undefined;
 
   // FA tokens used so far this season
   const seasonTransactionIds = new Set(
@@ -255,6 +262,7 @@ export default async function MyTeamPage() {
         }}
       draftMode={draftMode}
       isOnClock={isOnClock}
+      myDraftEnded={myDraftEnded}
       pointBudget={activeSeason.point_budget}
       pointsSpent={pointsSpent}
       faTokens={activeSeason.fa_tokens}

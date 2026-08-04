@@ -88,3 +88,52 @@ export async function setDraftActive(seasonId: number, conferenceId: number, isA
 
   revalidatePath("/admin/rosters");
 }
+
+export async function forceEndTeamDraft(seasonId: number, teamId: number) {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { error } = await admin.rpc("end_team_draft", {
+    p_season_id: seasonId,
+    p_team_id: teamId,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/rosters");
+  revalidatePath("/draft-pools");
+  revalidatePath("/my-team");
+}
+
+export async function reactivateTeamDraft(seasonId: number, teamId: number) {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { error } = await admin.rpc("reactivate_team_draft", {
+    p_season_id: seasonId,
+    p_team_id: teamId,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/rosters");
+  revalidatePath("/draft-pools");
+  revalidatePath("/my-team");
+}
+
+export async function revertDraftToPick(seasonId: number, conferenceId: number, keepUpToPickNumber: number) {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { error } = await admin.rpc("revert_draft_to_pick", {
+    p_season_id: seasonId,
+    p_conference_id: conferenceId,
+    p_keep_up_to_pick_number: keepUpToPickNumber,
+  });
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/rosters");
+  revalidatePath("/draft-pools");
+  revalidatePath("/my-team");
+}

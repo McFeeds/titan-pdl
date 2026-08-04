@@ -6,7 +6,7 @@ import { typeColor } from "@/lib/pokemon-types";
 import { DRAFT_SLOT_COUNT } from "@/lib/draft";
 import type { Pokemon, RosterPokemon } from "@/types/database";
 import { updateRosterNickname } from "./actions";
-import { addFreeAgent, dropFreeAgent, submitDraftPick } from "@/lib/roster-actions";
+import { addFreeAgent, dropFreeAgent, endMyDraft, submitDraftPick } from "@/lib/roster-actions";
 import DraftPickModal from "@/components/DraftPickModal";
 import SubmitResultsModal from "./SubmitResultsModal";
 
@@ -52,6 +52,7 @@ interface Props {
   record: { wins: number; losses: number };
   draftMode: DraftMode;
   isOnClock: boolean;
+  myDraftEnded: boolean;
   pointBudget: number;
   pointsSpent: number;
   faTokens: number;
@@ -491,6 +492,7 @@ function PokemonMiniSprite({ pokemon }: { pokemon: Pokemon }) {
 function StatusHeader({
   draftMode,
   isOnClock,
+  myDraftEnded,
   pointsSpent,
   pointBudget,
   faTokens,
@@ -498,6 +500,7 @@ function StatusHeader({
 }: {
   draftMode: DraftMode;
   isOnClock: boolean;
+  myDraftEnded: boolean;
   pointsSpent: number;
   pointBudget: number;
   faTokens: number;
@@ -524,7 +527,12 @@ function StatusHeader({
         {draftMode === "pre_draft" && (
           <span className="text-xs font-semibold text-gray-500">Draft not started</span>
         )}
-        {draftMode === "drafting" && (
+        {draftMode === "drafting" && myDraftEnded && (
+          <span className="text-xs font-bold text-gray-400 tracking-wide">
+            Your draft has ended — waiting for other teams
+          </span>
+        )}
+        {draftMode === "drafting" && !myDraftEnded && (
           <span className="flex items-center gap-1.5 text-xs font-bold tracking-wide">
             <span className="relative flex h-2 w-2">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
@@ -540,6 +548,57 @@ function StatusHeader({
         )}
       </div>
     </div>
+  );
+}
+
+// --- End my draft button ---
+
+function EndDraftButton({ onEnd }: { onEnd: () => Promise<{ error: string | null }> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleConfirm() {
+    setPending(true);
+    setError(null);
+    const result = await onEnd();
+    setPending(false);
+    if (result.error) {
+      setError(result.error);
+      setConfirming(false);
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-gray-500">End your draft?</span>
+        <button
+          onClick={handleConfirm}
+          disabled={pending}
+          className="text-xs font-bold text-red-400 hover:text-red-300 disabled:opacity-50"
+        >
+          {pending ? "Ending…" : "Yes"}
+        </button>
+        <button
+          onClick={() => setConfirming(false)}
+          disabled={pending}
+          className="text-xs font-medium text-gray-500 hover:text-gray-300"
+        >
+          No
+        </button>
+        {error && <span className="text-xs text-red-400">{error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      className="text-sm font-semibold text-red-400/80 hover:text-red-400 border border-red-500/30 hover:border-red-400/50 rounded-lg px-3 py-1.5 transition-colors"
+    >
+      End My Draft
+    </button>
   );
 }
 
@@ -622,6 +681,7 @@ export default function MyTeamView({
   record,
   draftMode,
   isOnClock,
+  myDraftEnded,
   pointBudget,
   pointsSpent,
   faTokens,
@@ -655,6 +715,12 @@ export default function MyTeamView({
   function handleClosePickModal() {
     setPick(null);
     router.refresh();
+  }
+
+  async function handleEndDraft() {
+    const result = await endMyDraft();
+    if (!result.error) router.refresh();
+    return result;
   }
 
   const pickDisabledReason = useMemo(() => {
@@ -702,6 +768,7 @@ export default function MyTeamView({
       <StatusHeader
         draftMode={draftMode}
         isOnClock={isOnClock}
+        myDraftEnded={myDraftEnded}
         pointsSpent={pointsSpent}
         pointBudget={pointBudget}
         faTokens={faTokens}
@@ -711,9 +778,10 @@ export default function MyTeamView({
       {/* Roster grid */}
       <section className="mb-8">
         <SectionHeading label="Roster" />
-        {draftMode !== "pre_draft" && (
-          <div className="mb-3">
+        {(draftMode === "free_agency" || (draftMode === "drafting" && !myDraftEnded)) && (
+          <div className="mb-3 flex items-center gap-3">
             <AddPokemonPanel undraftedPokemon={undraftedPokemon} onPick={handleAddPick} />
+            {draftMode === "drafting" && <EndDraftButton onEnd={handleEndDraft} />}
           </div>
         )}
         {roster.length === 0 ? (

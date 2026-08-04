@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import { computeOnClockPosition, DRAFT_SLOT_COUNT } from "@/lib/draft";
+import { computeOnClockTeamId, DRAFT_SLOT_COUNT } from "@/lib/draft";
 import { getEffectiveness, POKEMON_TYPES, TYPE_COLORS } from "@/lib/pokemon-types";
 import { Conference, PokemonWithMoves } from "@/types/database";
 import { addFreeAgent, submitDraftPick } from "@/lib/roster-actions";
@@ -251,6 +251,7 @@ interface TeamDraftInfo {
   conferenceId: number;
   draftPosition: number | null;
   pokemonIds: number[];
+  draftEnded: boolean;
 }
 
 interface Props {
@@ -345,6 +346,16 @@ export default function DraftBoard({
   });
 
   const [faTokensUsedByTeam, setFaTokensUsedByTeam] = useState(initialFaTokensUsedByTeam);
+
+  // Whether each team has ended their draft — drives turn-order skipping
+  // and the "DRAFT ENDED" badge on their card.
+  const [draftEndedMap, setDraftEndedMap] = useState<Record<number, boolean>>(() => {
+    const map: Record<number, boolean> = {};
+    for (const team of teams) {
+      map[team.id] = team.draftEnded;
+    }
+    return map;
+  });
 
   // Modal state for the pool-tab click-to-draft/add flow
   const [pickingPokemon, setPickingPokemon] = useState<PokemonWithMoves | null>(null);
@@ -477,6 +488,15 @@ export default function DraftBoard({
           setDraftStartedMap((prev) => ({ ...prev, [row.conference_id]: row.started_at }));
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "team_seasons" },
+        (payload) => {
+          const row = payload.new as { team_id: number; season_id: number; draft_ended_at: string | null };
+          if (row.season_id !== activeSeasonId) return;
+          setDraftEndedMap((prev) => ({ ...prev, [row.team_id]: row.draft_ended_at !== null }));
+        }
+      )
       .subscribe();
 
     return () => {
@@ -529,19 +549,24 @@ export default function DraftBoard({
   const onClockTeamId = useMemo(() => {
     if (!isDraftActive) return null;
     const picksSoFar = selectedConferenceId !== null ? pickCountMap[selectedConferenceId] ?? 0 : 0;
-    const onClockPosition = computeOnClockPosition(picksSoFar, teamsForConference.length);
-    if (onClockPosition === null) return null;
-    return teamsForConference.find((t) => t.draftPosition === onClockPosition)?.id ?? null;
-  }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference]);
+    const teamStates = teamsForConference.map((t) => ({
+      id: t.id,
+      draftPosition: t.draftPosition,
+      draftEnded: draftEndedMap[t.id] ?? false,
+      picksMade: teamRosterMap[t.id]?.size ?? 0,
+    }));
+    return computeOnClockTeamId(teamStates, picksSoFar);
+  }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference, draftEndedMap, teamRosterMap]);
 
   // Click-to-draft is only interactive while viewing your own conference —
   // every other case (other conference, logged out) stays view-only.
   const isViewingOwnConference =
     userTeamId !== null && selectedConferenceId !== null && selectedConferenceId === userConferenceId;
+  const myDraftEnded = userTeamId !== null && !!draftEndedMap[userTeamId];
   const selectedDraftStarted = selectedConferenceId !== null ? draftStartedMap[selectedConferenceId] : null;
   const clickMode: "draft" | "add" | null = !isViewingOwnConference
     ? null
-    : isDraftActive
+    : isDraftActive && !myDraftEnded
       ? "draft"
       : selectedDraftStarted
         ? "add"
@@ -699,6 +724,7 @@ export default function DraftBoard({
                 pokemonById={pokemonById}
                 isDraftActive={isDraftActive}
                 onClockTeamId={onClockTeamId}
+                draftEndedMap={draftEndedMap}
                 nextPickNumber={nextPickNumber}
                 teamCount={teamsForConference.length}
                 pointBudget={pointBudget}
@@ -730,6 +756,7 @@ function TeamsView({
   pokemonById,
   isDraftActive,
   onClockTeamId,
+  draftEndedMap,
   nextPickNumber,
   teamCount,
   pointBudget,
@@ -739,6 +766,7 @@ function TeamsView({
   pokemonById: Map<number, PokemonWithMoves>;
   isDraftActive: boolean;
   onClockTeamId: number | null;
+  draftEndedMap: Record<number, boolean>;
   nextPickNumber: number;
   teamCount: number;
   pointBudget: number;
@@ -752,7 +780,11 @@ function TeamsView({
   }
 
   const totalSlots = teamCount * DRAFT_SLOT_COUNT;
-  const draftComplete = isDraftActive && nextPickNumber > totalSlots;
+  // onClockTeamId is null exactly when compute_on_clock_team's skip-aware
+  // walk has exhausted every team's remaining rounds — the authoritative
+  // "nothing left to pick" signal, unlike a naive picks-vs-totalSlots count
+  // which doesn't know about teams who ended early.
+  const draftComplete = isDraftActive && onClockTeamId === null;
   const round = teamCount > 0 ? Math.ceil(Math.min(nextPickNumber, totalSlots) / teamCount) : 0;
 
   return (
@@ -780,6 +812,7 @@ function TeamsView({
           const spent = pokemonList.reduce((sum, p) => sum + p.point_value, 0);
           const remaining = pointBudget - spent;
           const onClock = team.id === onClockTeamId;
+          const ended = isDraftActive && !!draftEndedMap[team.id];
 
           return (
             <div
@@ -808,6 +841,11 @@ function TeamsView({
                       <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
                     </span>
                     ON THE CLOCK
+                  </span>
+                )}
+                {ended && (
+                  <span className="ml-auto text-[10px] font-bold text-gray-500 tracking-wide shrink-0">
+                    DRAFT ENDED
                   </span>
                 )}
               </div>

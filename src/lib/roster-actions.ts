@@ -93,3 +93,24 @@ export async function dropFreeAgent(pokemonId: number): Promise<ActionResult> {
   if (!team) return { error };
   return submitFreeAgencyMove(team, pokemonId, "drop");
 }
+
+export async function endMyDraft(): Promise<ActionResult> {
+  const { team, error } = await resolveCallerTeam();
+  if (!team) return { error };
+
+  const admin = createAdminClient();
+  const draftState = await getConferenceDraftState(admin, team.seasonId, team.conferenceId);
+  if (!draftState.isActive) {
+    return { error: "The draft isn't active for your conference." };
+  }
+
+  const { error: rpcError } = await admin.rpc("end_team_draft", {
+    p_season_id: team.seasonId,
+    p_team_id: team.teamId,
+  });
+  if (rpcError) return { error: rpcError.message };
+
+  revalidatePath("/draft-pools");
+  revalidatePath("/my-team");
+  return { error: null };
+}

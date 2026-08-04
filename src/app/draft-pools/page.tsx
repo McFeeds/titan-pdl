@@ -36,7 +36,7 @@ export default async function DraftPoolsPage() {
     supabase.from("rosters").select("pokemon_id, conference_id, season_id, team_id"),
     supabase
       .from("team_seasons")
-      .select("team_id, conference_id, draft_position, season_id, teams(team_name)")
+      .select("team_id, conference_id, draft_position, season_id, draft_ended_at, teams(team_name)")
       .order("draft_position"),
     supabase.auth.getUser(),
     supabase.from("draft_log").select("id, season_id, conference_id"),
@@ -113,6 +113,7 @@ export default async function DraftPoolsPage() {
         pokemonIds: (rosters ?? [])
           .filter((r) => r.team_id === ts.team_id && r.season_id === activeSeasonId)
           .map((r) => r.pokemon_id),
+        draftEnded: ts.draft_ended_at !== null,
       };
     })
     .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999));

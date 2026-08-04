@@ -65,6 +65,7 @@ export interface TeamSeason {
   conference_id: number;
   group_id: number | null;
   draft_position: number | null;
+  draft_ended_at: string | null;
 }
 
 export interface TeamMember {

@@ -39,7 +39,7 @@ export default async function DraftPoolsPage() {
       .select("team_id, conference_id, draft_position, season_id, draft_ended_at, teams(team_name)")
       .order("draft_position"),
     supabase.auth.getUser(),
-    supabase.from("draft_log").select("id, season_id, conference_id"),
+    supabase.from("draft_log").select("id, season_id, conference_id, team_id"),
     supabase.from("conference_drafts").select("season_id, conference_id, is_active, started_at"),
     supabase.from("transactions").select("id, season_id, type"),
     supabase.from("transaction_items").select("transaction_id, team_id, action"),
@@ -122,7 +122,7 @@ export default async function DraftPoolsPage() {
   // Picks logged so far this season, for turn-order tracking on the board
   const draftLogEntries = (draftLog ?? [])
     .filter((d) => d.season_id === activeSeasonId)
-    .map((d) => ({ id: d.id, conferenceId: d.conference_id }));
+    .map((d) => ({ id: d.id, conferenceId: d.conference_id, teamId: d.team_id }));
 
   const draftActiveByConference = (conferences ?? []).map((conf) => {
     const state = (draftStates ?? []).find(

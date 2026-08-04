@@ -262,7 +262,7 @@ interface Props {
   userConferenceId: number | null;
   userTeamId: number | null;
   teams: TeamDraftInfo[];
-  draftLog: { id: number; conferenceId: number }[];
+  draftLog: { id: number; conferenceId: number; teamId: number }[];
   draftActiveByConference: { conferenceId: number; isActive: boolean; startedAt: string | null }[];
   pointBudget: number;
   faTokens: number;
@@ -321,10 +321,23 @@ export default function DraftBoard({
     return map;
   });
 
-  // draft_log DELETE payloads only carry the row id (not conference_id), so
-  // this tracks id -> conferenceId locally to know what to decrement.
-  const pickIdToConferenceRef = useRef<Map<number, number>>(
-    new Map(draftLog.map((d) => [d.id, d.conferenceId]))
+  // How many picks each team has actually made (from draft_log, not roster
+  // size — a team's roster can include historically-seeded pokemon that
+  // predate live drafting, so roster size is not a reliable proxy here).
+  // Drives which future rounds get skipped once a team ends their draft.
+  const [teamPickCountMap, setTeamPickCountMap] = useState<Record<number, number>>(() => {
+    const map: Record<number, number> = {};
+    for (const { teamId } of draftLog) {
+      map[teamId] = (map[teamId] ?? 0) + 1;
+    }
+    return map;
+  });
+
+  // draft_log DELETE payloads only carry the row id (not conference_id or
+  // team_id), so this tracks id -> {conferenceId, teamId} locally to know
+  // what to decrement.
+  const pickIdToInfoRef = useRef<Map<number, { conferenceId: number; teamId: number }>>(
+    new Map(draftLog.map((d) => [d.id, { conferenceId: d.conferenceId, teamId: d.teamId }]))
   );
 
   const [draftActiveMap, setDraftActiveMap] = useState<Record<number, boolean>>(() => {
@@ -433,12 +446,21 @@ export default function DraftBoard({
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "draft_log" },
         (payload) => {
-          const row = payload.new as { id: number; season_id: number; conference_id: number };
+          const row = payload.new as {
+            id: number;
+            season_id: number;
+            conference_id: number;
+            team_id: number;
+          };
           if (row.season_id !== activeSeasonId) return;
-          pickIdToConferenceRef.current.set(row.id, row.conference_id);
+          pickIdToInfoRef.current.set(row.id, { conferenceId: row.conference_id, teamId: row.team_id });
           setPickCountMap((prev) => ({
             ...prev,
             [row.conference_id]: (prev[row.conference_id] ?? 0) + 1,
+          }));
+          setTeamPickCountMap((prev) => ({
+            ...prev,
+            [row.team_id]: (prev[row.team_id] ?? 0) + 1,
           }));
         }
       )
@@ -447,14 +469,18 @@ export default function DraftBoard({
         { event: "DELETE", schema: "public", table: "draft_log" },
         (payload) => {
           // DELETE payloads only guarantee the primary key (id), so the
-          // conference is looked up from what INSERT events already told us.
+          // conference/team are looked up from what INSERT events already told us.
           const row = payload.old as { id: number };
-          const conferenceId = pickIdToConferenceRef.current.get(row.id);
-          if (conferenceId === undefined) return;
-          pickIdToConferenceRef.current.delete(row.id);
+          const info = pickIdToInfoRef.current.get(row.id);
+          if (info === undefined) return;
+          pickIdToInfoRef.current.delete(row.id);
           setPickCountMap((prev) => ({
             ...prev,
-            [conferenceId]: Math.max(0, (prev[conferenceId] ?? 0) - 1),
+            [info.conferenceId]: Math.max(0, (prev[info.conferenceId] ?? 0) - 1),
+          }));
+          setTeamPickCountMap((prev) => ({
+            ...prev,
+            [info.teamId]: Math.max(0, (prev[info.teamId] ?? 0) - 1),
           }));
         }
       )
@@ -553,10 +579,10 @@ export default function DraftBoard({
       id: t.id,
       draftPosition: t.draftPosition,
       draftEnded: draftEndedMap[t.id] ?? false,
-      picksMade: teamRosterMap[t.id]?.size ?? 0,
+      picksMade: teamPickCountMap[t.id] ?? 0,
     }));
     return computeOnClockTeamId(teamStates, picksSoFar);
-  }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference, draftEndedMap, teamRosterMap]);
+  }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference, draftEndedMap, teamPickCountMap]);
 
   // Click-to-draft is only interactive while viewing your own conference —
   // every other case (other conference, logged out) stays view-only.

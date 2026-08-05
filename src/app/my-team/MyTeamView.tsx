@@ -1,13 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { typeColor } from "@/lib/pokemon-types";
+import { DRAFT_SLOT_COUNT } from "@/lib/draft";
 import type { Pokemon, RosterPokemon } from "@/types/database";
 import { updateRosterNickname } from "./actions";
+import { addFreeAgent, dropFreeAgent, endMyDraft, submitDraftPick } from "@/lib/roster-actions";
+import DraftPickModal from "@/components/DraftPickModal";
 import SubmitResultsModal from "./SubmitResultsModal";
 
 // --- Types ---
+
+export type DraftMode = "pre_draft" | "drafting" | "free_agency";
 
 interface PokemonStat {
   pokemon_id: number;
@@ -27,6 +32,15 @@ interface ScheduleEntry {
   total_games: number;
 }
 
+interface UndraftedPokemon {
+  id: number;
+  name: string;
+  dex_number: number | null;
+  type_1: string;
+  type_2: string | null;
+  point_value: number;
+}
+
 interface Props {
   team: { id: number; team_name: string; logo_url: string | null };
   teamId: number;
@@ -36,6 +50,14 @@ interface Props {
   pokemonStats: PokemonStat[];
   totalGamesPlayed: number;
   record: { wins: number; losses: number };
+  draftMode: DraftMode;
+  isOnClock: boolean;
+  myDraftEnded: boolean;
+  pointBudget: number;
+  pointsSpent: number;
+  faTokens: number;
+  faTokensUsed: number;
+  undraftedPokemon: UndraftedPokemon[];
 }
 
 // --- Shared helpers ---
@@ -95,12 +117,23 @@ function SectionHeading({ label }: { label: string }) {
 
 // --- Pokemon card for the roster grid ---
 
-function PokemonCard({ pokemon, seasonId }: { pokemon: RosterPokemon; seasonId: number }) {
+function PokemonCard({
+  pokemon,
+  seasonId,
+  canDrop,
+  onDropClick,
+}: {
+  pokemon: RosterPokemon;
+  seasonId: number;
+  canDrop?: boolean;
+  onDropClick?: (pokemon: RosterPokemon) => void;
+}) {
   const [attempt, setAttempt] = useState<"large" | "small" | "ball">("large");
   const [editing, setEditing] = useState(false);
   const [inputValue, setInputValue] = useState(pokemon.nickname ?? "");
   const [displayedNickname, setDisplayedNickname] = useState<string | null>(pokemon.nickname);
   const [saving, setSaving] = useState(false);
+  const [confirmingDrop, setConfirmingDrop] = useState(false);
 
   async function handleSave() {
     const trimmed = inputValue.trim() || null;
@@ -172,6 +205,32 @@ function PokemonCard({ pokemon, seasonId }: { pokemon: RosterPokemon; seasonId: 
           <TypeBadge type={pokemon.type_1} small />
           {pokemon.type_2 && <TypeBadge type={pokemon.type_2} small />}
         </div>
+        {canDrop && (
+          confirmingDrop ? (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <span className="text-[10px] text-gray-500">Drop?</span>
+              <button
+                onClick={() => { setConfirmingDrop(false); onDropClick?.(pokemon); }}
+                className="text-[10px] font-bold text-red-400 hover:text-red-300"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setConfirmingDrop(false)}
+                className="text-[10px] font-medium text-gray-500 hover:text-gray-300"
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmingDrop(true)}
+              className="text-[10px] font-semibold text-red-400/70 hover:text-red-400 mt-0.5"
+            >
+              Drop
+            </button>
+          )
+        )}
       </div>
     </div>
   );
@@ -428,6 +487,187 @@ function PokemonMiniSprite({ pokemon }: { pokemon: Pokemon }) {
   );
 }
 
+// --- Draft / free agency status header ---
+
+function StatusHeader({
+  draftMode,
+  isOnClock,
+  myDraftEnded,
+  pointsSpent,
+  pointBudget,
+  faTokens,
+  faTokensUsed,
+}: {
+  draftMode: DraftMode;
+  isOnClock: boolean;
+  myDraftEnded: boolean;
+  pointsSpent: number;
+  pointBudget: number;
+  faTokens: number;
+  faTokensUsed: number;
+}) {
+  const remaining = pointBudget - pointsSpent;
+  const faRemaining = faTokens - faTokensUsed;
+
+  return (
+    <div className="flex items-center gap-4 flex-wrap bg-white/5 border border-white/10 rounded-xl px-4 py-3 mb-6">
+      <div className="flex items-center gap-1.5 text-sm">
+        <span className="text-gray-500">Points</span>
+        <span className={`font-mono font-semibold ${remaining < 0 ? "text-red-400" : "text-white"}`}>
+          {pointsSpent} / {pointBudget}
+        </span>
+      </div>
+      {draftMode !== "pre_draft" && (
+        <div className="flex items-center gap-1.5 text-sm">
+          <span className="text-gray-500">FA Tokens</span>
+          <span className="font-mono font-semibold text-white">{faRemaining}</span>
+        </div>
+      )}
+      <div className="ml-auto flex items-center gap-2">
+        {draftMode === "pre_draft" && (
+          <span className="text-xs font-semibold text-gray-500">Draft not started</span>
+        )}
+        {draftMode === "drafting" && myDraftEnded && (
+          <span className="text-xs font-bold text-gray-400 tracking-wide">
+            Your draft has ended — waiting for other teams
+          </span>
+        )}
+        {draftMode === "drafting" && !myDraftEnded && (
+          <span className="flex items-center gap-1.5 text-xs font-bold tracking-wide">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+            </span>
+            <span className="text-red-400">
+              {isOnClock ? "Draft in progress — you're on the clock!" : "Draft in progress"}
+            </span>
+          </span>
+        )}
+        {draftMode === "free_agency" && (
+          <span className="text-xs font-bold text-emerald-400 tracking-wide">Free Agency Open</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// --- End my draft button ---
+
+function EndDraftButton({ onEnd }: { onEnd: () => Promise<{ error: string | null }> }) {
+  const [confirming, setConfirming] = useState(false);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleConfirm() {
+    setPending(true);
+    setError(null);
+    const result = await onEnd();
+    setPending(false);
+    if (result.error) {
+      setError(result.error);
+      setConfirming(false);
+    }
+  }
+
+  if (confirming) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="text-xs text-gray-500">End your draft?</span>
+        <button
+          onClick={handleConfirm}
+          disabled={pending}
+          className="text-xs font-bold text-red-400 hover:text-red-300 disabled:opacity-50"
+        >
+          {pending ? "Ending…" : "Yes"}
+        </button>
+        <button
+          onClick={() => setConfirming(false)}
+          disabled={pending}
+          className="text-xs font-medium text-gray-500 hover:text-gray-300"
+        >
+          No
+        </button>
+        {error && <span className="text-xs text-red-400">{error}</span>}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setConfirming(true)}
+      className="text-sm font-semibold text-red-400/80 hover:text-red-400 border border-red-500/30 hover:border-red-400/50 rounded-lg px-3 py-1.5 transition-colors"
+    >
+      End My Draft
+    </button>
+  );
+}
+
+// --- Add pokemon panel ---
+
+function AddPokemonPanel({
+  undraftedPokemon,
+  onPick,
+}: {
+  undraftedPokemon: UndraftedPokemon[];
+  onPick: (pokemon: UndraftedPokemon) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const matches = q ? undraftedPokemon.filter((p) => p.name.toLowerCase().includes(q)) : undraftedPokemon;
+    return matches.slice(0, 25);
+  }, [query, undraftedPokemon]);
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 border border-indigo-500/30 hover:border-indigo-400/50 rounded-lg px-3 py-1.5 transition-colors"
+      >
+        + Add Pokemon
+      </button>
+    );
+  }
+
+  return (
+    <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-2">
+      <div className="flex items-center gap-2 mb-2">
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search pokemon…"
+          className="flex-1 bg-[#0d0d1f] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+        <button
+          onClick={() => { setOpen(false); setQuery(""); }}
+          className="text-xs text-gray-500 hover:text-white transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+      <div className="max-h-56 overflow-y-auto flex flex-col gap-0.5">
+        {results.length === 0 ? (
+          <p className="text-xs text-gray-600 italic px-2 py-1">No pokemon found.</p>
+        ) : (
+          results.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => { onPick(p); setOpen(false); setQuery(""); }}
+              className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-left"
+            >
+              <span className="text-sm text-gray-200">{p.name}</span>
+              <span className="text-xs font-mono text-gray-500">{p.point_value} pts</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 // --- Main export ---
 
 export default function MyTeamView({
@@ -439,10 +679,60 @@ export default function MyTeamView({
   pokemonStats,
   totalGamesPlayed,
   record,
+  draftMode,
+  isOnClock,
+  myDraftEnded,
+  pointBudget,
+  pointsSpent,
+  faTokens,
+  faTokensUsed,
+  undraftedPokemon,
 }: Props) {
   const router = useRouter();
   const [submitMatchId, setSubmitMatchId] = useState<number | null>(null);
   const submitMatch = schedule.find((e) => e.id === submitMatchId) ?? null;
+
+  const [pick, setPick] = useState<{
+    pokemon: UndraftedPokemon | RosterPokemon;
+    mode: "draft" | "add" | "drop";
+  } | null>(null);
+
+  function handleAddPick(p: UndraftedPokemon) {
+    setPick({ pokemon: p, mode: draftMode === "drafting" ? "draft" : "add" });
+  }
+
+  function handleDropPick(p: RosterPokemon) {
+    setPick({ pokemon: p, mode: "drop" });
+  }
+
+  async function handleConfirmPick() {
+    if (!pick) return { error: "Nothing to submit" };
+    if (pick.mode === "draft") return submitDraftPick(pick.pokemon.id);
+    if (pick.mode === "add") return addFreeAgent(pick.pokemon.id);
+    return dropFreeAgent(pick.pokemon.id);
+  }
+
+  function handleClosePickModal() {
+    setPick(null);
+    router.refresh();
+  }
+
+  async function handleEndDraft() {
+    const result = await endMyDraft();
+    if (!result.error) router.refresh();
+    return result;
+  }
+
+  const pickDisabledReason = useMemo(() => {
+    if (!pick) return null;
+    if (pick.mode === "draft" && !isOnClock) return "It's not your team's turn to pick.";
+    if (pick.mode !== "drop") {
+      if (roster.length >= DRAFT_SLOT_COUNT) return "Your roster is full.";
+      if (pointsSpent + pick.pokemon.point_value > pointBudget) return "Not enough points remaining.";
+      if (pick.mode === "add" && faTokensUsed >= faTokens) return "No free agency tokens remaining.";
+    }
+    return null;
+  }, [pick, isOnClock, roster.length, pointsSpent, pointBudget, faTokensUsed, faTokens]);
 
   return (
     <main className="min-h-screen bg-[#0a0a1a] pt-20 px-6 pb-12">
@@ -475,15 +765,37 @@ export default function MyTeamView({
         </div>
       </div>
 
+      <StatusHeader
+        draftMode={draftMode}
+        isOnClock={isOnClock}
+        myDraftEnded={myDraftEnded}
+        pointsSpent={pointsSpent}
+        pointBudget={pointBudget}
+        faTokens={faTokens}
+        faTokensUsed={faTokensUsed}
+      />
+
       {/* Roster grid */}
       <section className="mb-8">
         <SectionHeading label="Roster" />
+        {(draftMode === "free_agency" || (draftMode === "drafting" && !myDraftEnded)) && (
+          <div className="mb-3 flex items-center gap-3">
+            <AddPokemonPanel undraftedPokemon={undraftedPokemon} onPick={handleAddPick} />
+            {draftMode === "drafting" && <EndDraftButton onEnd={handleEndDraft} />}
+          </div>
+        )}
         {roster.length === 0 ? (
           <p className="text-sm text-gray-600 italic">No pokemon on roster.</p>
         ) : (
           <div className="grid grid-cols-6 gap-3">
             {roster.map((p) => (
-              <PokemonCard key={p.id} pokemon={p} seasonId={seasonId} />
+              <PokemonCard
+                key={p.id}
+                pokemon={p}
+                seasonId={seasonId}
+                canDrop={draftMode === "free_agency"}
+                onDropClick={handleDropPick}
+              />
             ))}
           </div>
         )}
@@ -521,6 +833,20 @@ export default function MyTeamView({
             setSubmitMatchId(null);
             router.refresh();
           }}
+        />
+      )}
+
+      {/* Draft pick / free agency modal */}
+      {pick && (
+        <DraftPickModal
+          pokemon={pick.pokemon}
+          mode={pick.mode}
+          currentSpent={pointsSpent}
+          pointBudget={pointBudget}
+          faTokensRemaining={pick.mode === "draft" ? null : faTokens - faTokensUsed}
+          disabledReason={pickDisabledReason}
+          onConfirm={handleConfirmPick}
+          onClose={handleClosePickModal}
         />
       )}
     </main>

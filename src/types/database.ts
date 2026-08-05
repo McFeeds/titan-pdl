@@ -6,6 +6,8 @@ export interface Season {
   id: number;
   name: string;
   is_active: boolean;
+  point_budget: number;
+  fa_tokens: number;
   created_at: string;
 }
 
@@ -63,6 +65,7 @@ export interface TeamSeason {
   conference_id: number;
   group_id: number | null;
   draft_position: number | null;
+  draft_ended_at: string | null;
 }
 
 export interface TeamMember {
@@ -116,6 +119,13 @@ export interface DraftLog {
   team_id: number;
   pokemon_id: number;
   created_at: string;
+}
+
+export interface ConferenceDraft {
+  season_id: number;
+  conference_id: number;
+  is_active: boolean;
+  started_at: string | null;
 }
 
 export interface Transaction {

@@ -11,13 +11,34 @@ export async function createSeason(prevState: State, formData: FormData): Promis
   const name = (formData.get("name") as string)?.trim();
   if (!name) return { error: "Season name is required." };
 
+  const pointBudgetRaw = formData.get("point_budget");
+  const faTokensRaw = formData.get("fa_tokens");
+  const point_budget = pointBudgetRaw ? Number(pointBudgetRaw) : 115;
+  const fa_tokens = faTokensRaw ? Number(faTokensRaw) : 3;
+
   const admin = createAdminClient();
-  const { error } = await admin.from("seasons").insert({ name, is_active: false });
+  const { error } = await admin
+    .from("seasons")
+    .insert({ name, is_active: false, point_budget, fa_tokens });
 
   if (error) return { error: error.message };
 
   revalidatePath("/admin/seasons");
   return null;
+}
+
+export async function updateSeasonConfig(id: number, pointBudget: number, faTokens: number) {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("seasons")
+    .update({ point_budget: pointBudget, fa_tokens: faTokens })
+    .eq("id", id);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/seasons");
 }
 
 export async function setActiveSeason(formData: FormData) {

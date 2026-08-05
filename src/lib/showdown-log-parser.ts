@@ -17,7 +17,8 @@ function extractPokemonName(detail: string): string {
     .replace(/-Mega(-[XY])?$/i, "")
     .replace(/-Primal$/i, "")
     .replace(/-Gmax$/i, "")
-    .replace(/-Eternamax$/i, "");
+    .replace(/-Eternamax$/i, "")
+    .replace(/-Eternal$/i, ""); // Floette-Eternal is the Showdown base form for Floette-Mega
 }
 
 // "p1a: Olm" -> "p1a", "p2b: Carl" -> "p2b", else null

@@ -53,9 +53,17 @@ interface MatchSetup {
 function buildRosterLookup(rosterRows: any[]): Map<string, RosterEntry> {
   const map = new Map<string, RosterEntry>();
   for (const row of rosterRows ?? []) {
-    const p = row.pokemon as { id: number; name: string; slug: string } | null;
-    if (!p) continue;
-    map.set(p.slug, { id: p.id, name: p.name });
+    // row.pokemon may be an object or single-element array depending on Supabase join type
+    const raw = row.pokemon;
+    const p = (Array.isArray(raw) ? raw[0] : raw) as { id: number; name: string } | null | undefined;
+    if (!p?.name) continue;
+    const slug = nameToSlug(p.name);
+    const entry = { id: p.id, name: p.name };
+    map.set(slug, entry);
+    // Showdown abbreviates gender suffixes (-Female → -F, -Male → -M) in log lines.
+    // Index under the abbreviated slug too so "indeedee-f" resolves to "Indeedee-Female".
+    const abbrevSlug = slug.replace(/-female$/, "-f").replace(/-male$/, "-m");
+    if (abbrevSlug !== slug) map.set(abbrevSlug, entry);
   }
   return map;
 }
@@ -117,12 +125,12 @@ async function resolveMatchSetup(
       .not("showdown_name", "is", null),
     admin
       .from("rosters")
-      .select("pokemon(id, name, slug)")
+      .select("pokemon(id, name)")
       .eq("team_id", match.home_team_id)
       .eq("season_id", match.season_id),
     admin
       .from("rosters")
-      .select("pokemon(id, name, slug)")
+      .select("pokemon(id, name)")
       .eq("team_id", match.away_team_id)
       .eq("season_id", match.season_id),
   ]);

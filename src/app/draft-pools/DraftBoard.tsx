@@ -1,8 +1,12 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
+import { computeOnClockTeamId, DRAFT_SLOT_COUNT } from "@/lib/draft";
 import { getEffectiveness, POKEMON_TYPES, TYPE_COLORS } from "@/lib/pokemon-types";
 import { Conference, PokemonWithMoves } from "@/types/database";
+import { addFreeAgent, submitDraftPick } from "@/lib/roster-actions";
+import DraftPickModal from "@/components/DraftPickModal";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 // Diagonal split gradient per conference, matching the paired game versions
@@ -241,13 +245,30 @@ function buildFilter(
   return (p) => branchFilters.some((f) => f(p));
 }
 
+interface TeamDraftInfo {
+  id: number;
+  name: string;
+  conferenceId: number;
+  draftPosition: number | null;
+  pokemonIds: number[];
+  draftEnded: boolean;
+}
+
 interface Props {
   conferences: Conference[];
   pokemon: PokemonWithMoves[];
   activeSeasonId: number | null;
   draftedByConference: { conferenceId: number; pokemonIds: number[] }[];
   userConferenceId: number | null;
+  userTeamId: number | null;
+  teams: TeamDraftInfo[];
+  draftLog: { id: number; conferenceId: number; teamId: number }[];
+  draftActiveByConference: { conferenceId: number; isActive: boolean; startedAt: string | null }[];
+  pointBudget: number;
+  faTokens: number;
+  faTokensUsedByTeam: Record<number, number>;
 }
+
 
 export default function DraftBoard({
   conferences,
@@ -255,9 +276,18 @@ export default function DraftBoard({
   activeSeasonId,
   draftedByConference: initialDrafted,
   userConferenceId,
+  userTeamId,
+  teams,
+  draftLog,
+  draftActiveByConference,
+  pointBudget,
+  faTokens,
+  faTokensUsedByTeam: initialFaTokensUsedByTeam,
 }: Props) {
+  const router = useRouter();
   const defaultConferenceId = userConferenceId ?? conferences[0]?.id ?? null;
   const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(defaultConferenceId);
+  const [view, setView] = useState<"pool" | "teams">("pool");
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -271,6 +301,77 @@ export default function DraftBoard({
       return map;
     }
   );
+
+  const [teamRosterMap, setTeamRosterMap] = useState<Record<number, Set<number>>>(
+    () => {
+      const map: Record<number, Set<number>> = {};
+      for (const team of teams) {
+        map[team.id] = new Set(team.pokemonIds);
+      }
+      return map;
+    }
+  );
+
+  // How many picks have been logged so far, per conference — drives turn tracking
+  const [pickCountMap, setPickCountMap] = useState<Record<number, number>>(() => {
+    const map: Record<number, number> = {};
+    for (const { conferenceId } of draftLog) {
+      map[conferenceId] = (map[conferenceId] ?? 0) + 1;
+    }
+    return map;
+  });
+
+  // How many picks each team has actually made (from draft_log, not roster
+  // size — a team's roster can include historically-seeded pokemon that
+  // predate live drafting, so roster size is not a reliable proxy here).
+  // Drives which future rounds get skipped once a team ends their draft.
+  const [teamPickCountMap, setTeamPickCountMap] = useState<Record<number, number>>(() => {
+    const map: Record<number, number> = {};
+    for (const { teamId } of draftLog) {
+      map[teamId] = (map[teamId] ?? 0) + 1;
+    }
+    return map;
+  });
+
+  // draft_log DELETE payloads only carry the row id (not conference_id or
+  // team_id), so this tracks id -> {conferenceId, teamId} locally to know
+  // what to decrement.
+  const pickIdToInfoRef = useRef<Map<number, { conferenceId: number; teamId: number }>>(
+    new Map(draftLog.map((d) => [d.id, { conferenceId: d.conferenceId, teamId: d.teamId }]))
+  );
+
+  const [draftActiveMap, setDraftActiveMap] = useState<Record<number, boolean>>(() => {
+    const map: Record<number, boolean> = {};
+    for (const { conferenceId, isActive } of draftActiveByConference) {
+      map[conferenceId] = isActive;
+    }
+    return map;
+  });
+
+  // Set once a conference's draft has ever been started — distinguishes
+  // "not started yet" (locked) from "ended" (free agency open).
+  const [draftStartedMap, setDraftStartedMap] = useState<Record<number, string | null>>(() => {
+    const map: Record<number, string | null> = {};
+    for (const { conferenceId, startedAt } of draftActiveByConference) {
+      map[conferenceId] = startedAt;
+    }
+    return map;
+  });
+
+  const [faTokensUsedByTeam, setFaTokensUsedByTeam] = useState(initialFaTokensUsedByTeam);
+
+  // Whether each team has ended their draft — drives turn-order skipping
+  // and the "DRAFT ENDED" badge on their card.
+  const [draftEndedMap, setDraftEndedMap] = useState<Record<number, boolean>>(() => {
+    const map: Record<number, boolean> = {};
+    for (const team of teams) {
+      map[team.id] = team.draftEnded;
+    }
+    return map;
+  });
+
+  // Modal state for the pool-tab click-to-draft/add flow
+  const [pickingPokemon, setPickingPokemon] = useState<PokemonWithMoves | null>(null);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -294,6 +395,7 @@ export default function DraftBoard({
             pokemon_id: number;
             conference_id: number;
             season_id: number;
+            team_id: number;
           };
           if (row.season_id !== activeSeasonId) return;
           setDraftedMap((prev) => {
@@ -301,12 +403,20 @@ export default function DraftBoard({
             next.add(row.pokemon_id);
             return { ...prev, [row.conference_id]: next };
           });
+          setTeamRosterMap((prev) => {
+            const next = new Set(prev[row.team_id]);
+            next.add(row.pokemon_id);
+            return { ...prev, [row.team_id]: next };
+          });
         }
       )
       .on(
         "postgres_changes",
         { event: "DELETE", schema: "public", table: "rosters" },
         (payload) => {
+          // Note: only primary-key columns (pokemon_id, conference_id, season_id)
+          // are guaranteed present on DELETE — team_id is not part of the PK, so
+          // we look up which team currently owns the pokemon instead.
           const row = payload.old as {
             pokemon_id: number;
             conference_id: number;
@@ -319,6 +429,98 @@ export default function DraftBoard({
             next.delete(row.pokemon_id);
             return { ...prev, [row.conference_id]: next };
           });
+          setTeamRosterMap((prev) => {
+            const owningTeam = teams.find(
+              (t) =>
+                t.conferenceId === row.conference_id &&
+                prev[t.id]?.has(row.pokemon_id)
+            );
+            if (!owningTeam) return prev;
+            const next = new Set(prev[owningTeam.id]);
+            next.delete(row.pokemon_id);
+            return { ...prev, [owningTeam.id]: next };
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "draft_log" },
+        (payload) => {
+          const row = payload.new as {
+            id: number;
+            season_id: number;
+            conference_id: number;
+            team_id: number;
+          };
+          if (row.season_id !== activeSeasonId) return;
+          pickIdToInfoRef.current.set(row.id, { conferenceId: row.conference_id, teamId: row.team_id });
+          setPickCountMap((prev) => ({
+            ...prev,
+            [row.conference_id]: (prev[row.conference_id] ?? 0) + 1,
+          }));
+          setTeamPickCountMap((prev) => ({
+            ...prev,
+            [row.team_id]: (prev[row.team_id] ?? 0) + 1,
+          }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "draft_log" },
+        (payload) => {
+          // DELETE payloads only guarantee the primary key (id), so the
+          // conference/team are looked up from what INSERT events already told us.
+          const row = payload.old as { id: number };
+          const info = pickIdToInfoRef.current.get(row.id);
+          if (info === undefined) return;
+          pickIdToInfoRef.current.delete(row.id);
+          setPickCountMap((prev) => ({
+            ...prev,
+            [info.conferenceId]: Math.max(0, (prev[info.conferenceId] ?? 0) - 1),
+          }));
+          setTeamPickCountMap((prev) => ({
+            ...prev,
+            [info.teamId]: Math.max(0, (prev[info.teamId] ?? 0) - 1),
+          }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "conference_drafts" },
+        (payload) => {
+          const row = payload.new as {
+            season_id: number;
+            conference_id: number;
+            is_active: boolean;
+            started_at: string | null;
+          };
+          if (row.season_id !== activeSeasonId) return;
+          setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
+          setDraftStartedMap((prev) => ({ ...prev, [row.conference_id]: row.started_at }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "conference_drafts" },
+        (payload) => {
+          const row = payload.new as {
+            season_id: number;
+            conference_id: number;
+            is_active: boolean;
+            started_at: string | null;
+          };
+          if (row.season_id !== activeSeasonId) return;
+          setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
+          setDraftStartedMap((prev) => ({ ...prev, [row.conference_id]: row.started_at }));
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "team_seasons" },
+        (payload) => {
+          const row = payload.new as { team_id: number; season_id: number; draft_ended_at: string | null };
+          if (row.season_id !== activeSeasonId) return;
+          setDraftEndedMap((prev) => ({ ...prev, [row.team_id]: row.draft_ended_at !== null }));
         }
       )
       .subscribe();
@@ -326,7 +528,7 @@ export default function DraftBoard({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [activeSeasonId]);
+  }, [activeSeasonId, teams]);
 
   const draftedIds =
     selectedConferenceId !== null
@@ -353,12 +555,90 @@ export default function DraftBoard({
 
   const noResults = !!debouncedQuery.trim() && filteredPokemon.length === 0;
 
+  const pokemonById = useMemo(
+    () => new Map(pokemon.map((p) => [p.id, p])),
+    [pokemon]
+  );
+
+  const teamsForConference = useMemo(
+    () =>
+      teams
+        .filter((t) => t.conferenceId === selectedConferenceId)
+        .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999)),
+    [teams, selectedConferenceId]
+  );
+
+  const isDraftActive = selectedConferenceId !== null && !!draftActiveMap[selectedConferenceId];
+
+  const nextPickNumber = (selectedConferenceId !== null ? pickCountMap[selectedConferenceId] ?? 0 : 0) + 1;
+
+  const onClockTeamId = useMemo(() => {
+    if (!isDraftActive) return null;
+    const picksSoFar = selectedConferenceId !== null ? pickCountMap[selectedConferenceId] ?? 0 : 0;
+    const teamStates = teamsForConference.map((t) => ({
+      id: t.id,
+      draftPosition: t.draftPosition,
+      draftEnded: draftEndedMap[t.id] ?? false,
+      picksMade: teamPickCountMap[t.id] ?? 0,
+    }));
+    return computeOnClockTeamId(teamStates, picksSoFar);
+  }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference, draftEndedMap, teamPickCountMap]);
+
+  // Click-to-draft is only interactive while viewing your own conference —
+  // every other case (other conference, logged out) stays view-only.
+  const isViewingOwnConference =
+    userTeamId !== null && selectedConferenceId !== null && selectedConferenceId === userConferenceId;
+  const myDraftEnded = userTeamId !== null && !!draftEndedMap[userTeamId];
+  const selectedDraftStarted = selectedConferenceId !== null ? draftStartedMap[selectedConferenceId] : null;
+  const clickMode: "draft" | "add" | null = !isViewingOwnConference
+    ? null
+    : isDraftActive && !myDraftEnded
+      ? "draft"
+      : selectedDraftStarted
+        ? "add"
+        : null;
+
+  const myTeamPokemonIds = userTeamId !== null ? teamRosterMap[userTeamId] ?? new Set<number>() : new Set<number>();
+  const myTeamSpent = [...myTeamPokemonIds].reduce(
+    (sum, id) => sum + (pokemonById.get(id)?.point_value ?? 0),
+    0
+  );
+  const myFaTokensUsed = userTeamId !== null ? faTokensUsedByTeam[userTeamId] ?? 0 : 0;
+
+  const myTeamRosterSize = myTeamPokemonIds.size;
+
+  const pickingDisabledReason = useMemo(() => {
+    if (!pickingPokemon || clickMode === null) return null;
+    if (clickMode === "draft" && onClockTeamId !== userTeamId) return "It's not your team's turn to pick.";
+    if (myTeamRosterSize >= DRAFT_SLOT_COUNT) return "Your roster is full.";
+    if (myTeamSpent + pickingPokemon.point_value > pointBudget) return "Not enough points remaining.";
+    if (clickMode === "add" && myFaTokensUsed >= faTokens) return "No free agency tokens remaining.";
+    return null;
+  }, [pickingPokemon, clickMode, onClockTeamId, userTeamId, myTeamRosterSize, myTeamSpent, pointBudget, myFaTokensUsed, faTokens]);
+
+  async function handleConfirmPick() {
+    if (!pickingPokemon || clickMode === null) return { error: "Nothing to submit" };
+    const result =
+      clickMode === "draft"
+        ? await submitDraftPick(pickingPokemon.id)
+        : await addFreeAgent(pickingPokemon.id);
+    if (!result.error && userTeamId !== null && clickMode === "add") {
+      setFaTokensUsedByTeam((prev) => ({ ...prev, [userTeamId]: (prev[userTeamId] ?? 0) + 1 }));
+    }
+    return result;
+  }
+
+  function handleClosePickModal() {
+    setPickingPokemon(null);
+    router.refresh();
+  }
+
   return (
     <main className="pt-20 pb-16 min-h-screen">
       <div className="max-w-7xl mx-auto px-6">
         {/* Conference toggle */}
-        <div className="my-6">
-          <div className="bg-white/5 rounded-2xl p-1.5 flex w-full border border-white/10">
+        <div className="my-6 flex gap-3 items-stretch">
+          <div className="bg-white/5 rounded-2xl p-1.5 flex flex-1 border border-white/10">
             {conferences.map((conf) => {
               const isSelected = selectedConferenceId === conf.id;
               const theme = getConferenceTheme(conf.name);
@@ -386,76 +666,327 @@ export default function DraftBoard({
               );
             })}
           </div>
+
+          {/* View toggle: pool board vs. team draft order */}
+          <div className="bg-white/5 rounded-2xl p-1.5 flex border border-white/10">
+            {(
+              [
+                ["pool", "Pool"],
+                ["teams", "Teams"],
+              ] as [typeof view, string][]
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                onClick={() => setView(v)}
+                className={`px-5 py-4 rounded-xl font-bold text-sm tracking-wide transition-colors duration-200 ${
+                  view === v
+                    ? "bg-indigo-600 text-white"
+                    : "text-gray-400 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Search — sticky below the fixed nav */}
-        <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
-          <input
-            type="text"
-            placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
-            value={rawQuery}
-            onChange={(e) => setRawQuery(e.target.value)}
-            className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+        {view === "pool" ? (
+          <>
+            {/* Search — sticky below the fixed nav */}
+            <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
+              <input
+                type="text"
+                placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
+                value={rawQuery}
+                onChange={(e) => setRawQuery(e.target.value)}
+                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+              />
+            </div>
+
+            {/* No results */}
+            {noResults && (
+              <div className="text-center py-20 text-gray-500 text-sm">
+                No pokemon match your search.
+              </div>
+            )}
+
+            {/* Board rows grouped by point value */}
+            {groups.map(([pointValue, group]) => (
+              <div key={pointValue} className="mb-10">
+                <div className="flex items-center gap-4 mb-5">
+                  <div className="h-px flex-1 bg-white/10" />
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-3xl font-black text-white tabular-nums">
+                      {pointValue}
+                    </span>
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
+                      pts
+                    </span>
+                  </div>
+                  <div className="h-px flex-1 bg-white/10" />
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  {group.map((p) => (
+                    <PokemonCard
+                      key={p.id}
+                      pokemon={p}
+                      isDrafted={draftedIds.has(p.id)}
+                      clickable={clickMode !== null}
+                      onClick={clickMode !== null ? () => setPickingPokemon(p) : undefined}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </>
+        ) : (
+          // Break out of the max-w-7xl wrapper so team panels get the full viewport width
+          <div className="w-screen relative left-1/2 right-1/2 -mx-[50vw] px-6">
+            <div className="max-w-[1700px] mx-auto">
+              <TeamsView
+                teams={teamsForConference}
+                teamRosterMap={teamRosterMap}
+                pokemonById={pokemonById}
+                isDraftActive={isDraftActive}
+                onClockTeamId={onClockTeamId}
+                draftEndedMap={draftEndedMap}
+                nextPickNumber={nextPickNumber}
+                teamCount={teamsForConference.length}
+                pointBudget={pointBudget}
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {pickingPokemon && clickMode !== null && (
+        <DraftPickModal
+          pokemon={pickingPokemon}
+          mode={clickMode}
+          currentSpent={myTeamSpent}
+          pointBudget={pointBudget}
+          faTokensRemaining={clickMode === "add" ? faTokens - myFaTokensUsed : null}
+          disabledReason={pickingDisabledReason}
+          onConfirm={handleConfirmPick}
+          onClose={handleClosePickModal}
+        />
+      )}
+    </main>
+  );
+}
+
+function TeamsView({
+  teams,
+  teamRosterMap,
+  pokemonById,
+  isDraftActive,
+  onClockTeamId,
+  draftEndedMap,
+  nextPickNumber,
+  teamCount,
+  pointBudget,
+}: {
+  teams: TeamDraftInfo[];
+  teamRosterMap: Record<number, Set<number>>;
+  pokemonById: Map<number, PokemonWithMoves>;
+  isDraftActive: boolean;
+  onClockTeamId: number | null;
+  draftEndedMap: Record<number, boolean>;
+  nextPickNumber: number;
+  teamCount: number;
+  pointBudget: number;
+}) {
+  if (teams.length === 0) {
+    return (
+      <div className="text-center py-20 text-gray-500 text-sm">
+        No teams found for this conference.
+      </div>
+    );
+  }
+
+  const totalSlots = teamCount * DRAFT_SLOT_COUNT;
+  // onClockTeamId is null exactly when compute_on_clock_team's skip-aware
+  // walk has exhausted every team's remaining rounds — the authoritative
+  // "nothing left to pick" signal, unlike a naive picks-vs-totalSlots count
+  // which doesn't know about teams who ended early.
+  const draftComplete = isDraftActive && onClockTeamId === null;
+  const round = teamCount > 0 ? Math.ceil(Math.min(nextPickNumber, totalSlots) / teamCount) : 0;
+
+  return (
+    <div className="pb-4">
+      {isDraftActive && (
+        <div className="mb-4 flex items-center gap-2 text-sm">
+          <span className="relative flex h-2.5 w-2.5">
+            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-500 opacity-75" />
+            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500" />
+          </span>
+          <span className="text-red-400 font-bold tracking-wide">
+            {draftComplete
+              ? "DRAFT COMPLETE"
+              : `DRAFT LIVE — Round ${round}, Pick ${nextPickNumber}`}
+          </span>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {teams.map((team) => {
+          const pokemonIds = [...(teamRosterMap[team.id] ?? [])];
+          const pokemonList = pokemonIds
+            .map((id) => pokemonById.get(id))
+            .filter((p): p is PokemonWithMoves => !!p);
+          const spent = pokemonList.reduce((sum, p) => sum + p.point_value, 0);
+          const remaining = pointBudget - spent;
+          const onClock = team.id === onClockTeamId;
+          const ended = isDraftActive && !!draftEndedMap[team.id];
+
+          return (
+            <div
+              key={team.id}
+              className={`bg-white/5 border rounded-2xl p-4 flex flex-col min-w-0 transition-colors ${
+                onClock
+                  ? "border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/20"
+                  : "border-white/10"
+              }`}
+            >
+              <div className="flex items-center gap-2 mb-3">
+                <span
+                  className={`flex items-center justify-center w-7 h-7 rounded-full text-white text-xs font-bold shrink-0 ${
+                    onClock ? "bg-emerald-500" : "bg-indigo-600"
+                  }`}
+                >
+                  {team.draftPosition ?? "—"}
+                </span>
+                <span className="text-white text-base font-bold truncate min-w-0">
+                  {team.name}
+                </span>
+                {onClock && (
+                  <span className="ml-auto flex items-center gap-1 text-[10px] font-bold text-emerald-400 tracking-wide shrink-0">
+                    <span className="relative flex h-1.5 w-1.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-400" />
+                    </span>
+                    ON THE CLOCK
+                  </span>
+                )}
+                {ended && (
+                  <span className="ml-auto text-[10px] font-bold text-gray-500 tracking-wide shrink-0">
+                    DRAFT ENDED
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-6 gap-2">
+                {Array.from({ length: DRAFT_SLOT_COUNT }).map((_, i) => (
+                  <DraftSlot key={i} slotNumber={i + 1} pokemon={pokemonList[i]} />
+                ))}
+              </div>
+
+              <div className="mt-3 pt-3 border-t border-white/10 flex items-center justify-between text-xs">
+                <span className="text-gray-500">
+                  Spent <span className="text-gray-300 font-semibold">{spent}</span>
+                </span>
+                <span
+                  className={`font-bold ${
+                    remaining < 0 ? "text-red-400" : "text-emerald-400"
+                  }`}
+                >
+                  {remaining} left
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function DraftSlot({
+  slotNumber,
+  pokemon,
+}: {
+  slotNumber: number;
+  pokemon: PokemonWithMoves | undefined;
+}) {
+  if (!pokemon) {
+    return (
+      <div className="flex flex-col items-center gap-0.5">
+        <div className="w-full aspect-square rounded-lg border border-dashed border-white/10 flex items-center justify-center text-gray-700 text-[10px]">
+          {slotNumber}
+        </div>
+        <span className="text-[9px] leading-tight">&nbsp;</span>
+      </div>
+    );
+  }
+
+  const primaryColor = TYPE_COLORS[pokemon.type_1] ?? "#6b7280";
+
+  return (
+    <div className="flex flex-col items-center gap-0.5 min-w-0 w-full">
+      <div
+        className="group relative w-full aspect-square rounded-lg overflow-hidden bg-white/5 border-t-2 border border-white/10"
+        style={{ borderTopColor: primaryColor }}
+      >
+        {pokemon.dex_number ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/other/official-artwork/${pokemon.dex_number}.png`}
+            alt={pokemon.name}
+            className="w-full h-full object-cover"
+            onError={(e) => {
+              e.currentTarget.src = `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${pokemon.dex_number}.png`;
+            }}
           />
-        </div>
-
-        {/* No results */}
-        {noResults && (
-          <div className="text-center py-20 text-gray-500 text-sm">
-            No pokemon match your search.
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-gray-600 text-xs">
+            ?
           </div>
         )}
 
-        {/* Board rows grouped by point value */}
-        {groups.map(([pointValue, group]) => (
-          <div key={pointValue} className="mb-10">
-            <div className="flex items-center gap-4 mb-5">
-              <div className="h-px flex-1 bg-white/10" />
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-3xl font-black text-white tabular-nums">
-                  {pointValue}
-                </span>
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-widest">
-                  pts
-                </span>
-              </div>
-              <div className="h-px flex-1 bg-white/10" />
-            </div>
+        {/* Point value badge */}
+        <span className="absolute bottom-0.5 right-0.5 bg-black/75 text-white text-[9px] font-bold leading-none px-1 py-0.5 rounded">
+          {pokemon.point_value}
+        </span>
 
-            <div className="flex flex-wrap gap-3">
-              {group.map((p) => (
-                <PokemonCard
-                  key={p.id}
-                  pokemon={p}
-                  isDrafted={draftedIds.has(p.id)}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
+        {/* Hover tooltip */}
+        <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-lg px-2 py-1 opacity-0 group-hover:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl whitespace-nowrap">
+          <p className="font-semibold text-white text-xs">{pokemon.name}</p>
+        </div>
       </div>
-    </main>
+      <span className="text-[9px] text-gray-400 text-center w-full truncate leading-tight">
+        {pokemon.name}
+      </span>
+    </div>
   );
 }
 
 function PokemonCard({
   pokemon,
   isDrafted,
+  clickable,
+  onClick,
 }: {
   pokemon: PokemonWithMoves;
   isDrafted: boolean;
+  clickable?: boolean;
+  onClick?: () => void;
 }) {
   const types = [pokemon.type_1, pokemon.type_2].filter(Boolean) as string[];
   const primaryColor = TYPE_COLORS[pokemon.type_1] ?? "#6b7280";
+  const isInteractive = clickable && !isDrafted;
 
   return (
     <div className="group relative flex flex-col items-center">
       {/* Card */}
       <div
+        onClick={isInteractive ? onClick : undefined}
         className={`relative w-[72px] rounded-lg overflow-hidden border-t-2 border border-white/10 transition-all duration-200 ${
           isDrafted
             ? "opacity-25 grayscale"
-            : "hover:scale-110 hover:z-10 hover:border-white/20 cursor-pointer"
+            : isInteractive
+              ? "hover:scale-110 hover:z-10 hover:ring-2 hover:ring-indigo-400 cursor-pointer"
+              : "hover:scale-110 hover:z-10 hover:border-white/20 cursor-pointer"
         }`}
         style={{ borderTopColor: isDrafted ? "transparent" : primaryColor }}
       >

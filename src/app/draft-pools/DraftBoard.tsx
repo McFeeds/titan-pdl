@@ -625,6 +625,10 @@ export default function DraftBoard({
     if (!result.error && userTeamId !== null && clickMode === "add") {
       setFaTokensUsedByTeam((prev) => ({ ...prev, [userTeamId]: (prev[userTeamId] ?? 0) + 1 }));
     }
+    if (!result.error && clickMode === "draft") {
+      // Jump to the Teams view so the live picks (including this one) are visible.
+      setView("teams");
+    }
     return result;
   }
 
@@ -637,8 +641,8 @@ export default function DraftBoard({
     <main className="pt-20 pb-16 min-h-screen">
       <div className="max-w-7xl mx-auto px-6">
         {/* Conference toggle */}
-        <div className="my-6 flex gap-3 items-stretch">
-          <div className="bg-white/5 rounded-2xl p-1.5 flex flex-1 border border-white/10">
+        <div className="my-6">
+          <div className="bg-white/5 rounded-2xl p-1.5 flex w-full border border-white/10">
             {conferences.map((conf) => {
               const isSelected = selectedConferenceId === conf.id;
               const theme = getConferenceTheme(conf.name);
@@ -666,9 +670,12 @@ export default function DraftBoard({
               );
             })}
           </div>
+        </div>
 
-          {/* View toggle: pool board vs. team draft order */}
-          <div className="bg-white/5 rounded-2xl p-1.5 flex border border-white/10">
+        {/* Pinned: view toggle + search (search only shown in Pool view) — stays
+            visible together while scrolling through either view. */}
+        <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm flex items-center gap-3">
+          <div className="bg-white/5 rounded-2xl p-1.5 flex border border-white/10 shrink-0">
             {(
               [
                 ["pool", "Pool"],
@@ -678,7 +685,7 @@ export default function DraftBoard({
               <button
                 key={v}
                 onClick={() => setView(v)}
-                className={`px-5 py-4 rounded-xl font-bold text-sm tracking-wide transition-colors duration-200 ${
+                className={`px-5 py-3 rounded-xl font-bold text-sm tracking-wide transition-colors duration-200 ${
                   view === v
                     ? "bg-indigo-600 text-white"
                     : "text-gray-400 hover:text-white hover:bg-white/5"
@@ -688,21 +695,20 @@ export default function DraftBoard({
               </button>
             ))}
           </div>
+
+          {view === "pool" && (
+            <input
+              type="text"
+              placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
+              value={rawQuery}
+              onChange={(e) => setRawQuery(e.target.value)}
+              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
+            />
+          )}
         </div>
 
         {view === "pool" ? (
           <>
-            {/* Search — sticky below the fixed nav */}
-            <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm">
-              <input
-                type="text"
-                placeholder='Search... e.g. "Water type over 100 attack OR over 100 spa", "Fire type AND speed > 100"'
-                value={rawQuery}
-                onChange={(e) => setRawQuery(e.target.value)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 transition-colors text-sm"
-              />
-            </div>
-
             {/* No results */}
             {noResults && (
               <div className="text-center py-20 text-gray-500 text-sm">

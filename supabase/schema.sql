@@ -814,19 +814,23 @@ GROUP BY m.season_id, mgp.team_id, mgp.pokemon_id;
 -- reset to 0 along with draft_ended_at, since both are draft-run state, not
 -- season setup. Only ever invoked by an admin from a confirmation-gated UI.
 -- ------------------------------------------------------------
+-- Every DELETE/UPDATE here uses `WHERE true` because Supabase's API-facing
+-- role runs under the safeupdate extension, which rejects any DELETE/UPDATE
+-- lacking a WHERE clause (SQLSTATE 21000) -- it only checks for the
+-- syntactic presence of one, so this satisfies it without changing behavior.
 CREATE OR REPLACE FUNCTION admin_reset_draft_history() RETURNS VOID
 LANGUAGE plpgsql
 AS $$
 BEGIN
-  DELETE FROM match_game_pokemon;
-  DELETE FROM match_games;
-  DELETE FROM matches;
-  DELETE FROM transaction_items;
-  DELETE FROM transactions;
-  DELETE FROM draft_log;
-  DELETE FROM rosters;
-  DELETE FROM conference_drafts;
-  UPDATE team_seasons SET draft_ended_at = NULL, fa_tokens_adjustment = 0;
+  DELETE FROM match_game_pokemon WHERE true;
+  DELETE FROM match_games WHERE true;
+  DELETE FROM matches WHERE true;
+  DELETE FROM transaction_items WHERE true;
+  DELETE FROM transactions WHERE true;
+  DELETE FROM draft_log WHERE true;
+  DELETE FROM rosters WHERE true;
+  DELETE FROM conference_drafts WHERE true;
+  UPDATE team_seasons SET draft_ended_at = NULL, fa_tokens_adjustment = 0 WHERE true;
 END;
 $$;
 

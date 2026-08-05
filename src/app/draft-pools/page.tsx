@@ -42,7 +42,7 @@ export default async function DraftPoolsPage() {
     supabase.from("draft_log").select("id, season_id, conference_id, team_id"),
     supabase.from("conference_drafts").select("season_id, conference_id, is_active, started_at"),
     supabase.from("transactions").select("id, season_id, type"),
-    supabase.from("transaction_items").select("transaction_id, team_id, action"),
+    supabase.from("transaction_items").select("transaction_id, team_id, action, pokemon_id"),
   ]);
 
   const activeSeasonId = activeSeason?.id ?? null;
@@ -147,6 +147,15 @@ export default async function DraftPoolsPage() {
     faTokensUsedByTeam[item.team_id] = (faTokensUsedByTeam[item.team_id] ?? 0) + 1;
   }
 
+  // Pokemon the viewer's own team has dropped this season — they can't pick
+  // these back up, so the pool tab can pre-emptively disable them.
+  const droppedByUserTeam = (transactionItems ?? [])
+    .filter(
+      (item) =>
+        item.team_id === userTeamId && item.action === "drop" && seasonTransactionIds.has(item.transaction_id)
+    )
+    .map((item) => item.pokemon_id);
+
   return (
     <DraftBoard
       conferences={conferences ?? []}
@@ -161,6 +170,7 @@ export default async function DraftPoolsPage() {
       pointBudget={pointBudget}
       faTokens={faTokens}
       faTokensUsedByTeam={faTokensUsedByTeam}
+      droppedByUserTeam={droppedByUserTeam}
     />
   );
 }

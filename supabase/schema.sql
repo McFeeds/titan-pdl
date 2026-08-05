@@ -509,6 +509,8 @@ $$;
 
 -- ------------------------------------------------------------
 -- SUBMIT FREE AGENCY MOVE (player-facing add/drop, post-draft)
+-- A team that drops a pokemon can never pick that same pokemon back up for
+-- the rest of the season (other teams are unaffected).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION submit_free_agency_move(
   p_season_id     INTEGER,
@@ -545,6 +547,14 @@ BEGIN
       WHERE pokemon_id = p_pokemon_id AND conference_id = p_conference_id AND season_id = p_season_id
     ) THEN
       RAISE EXCEPTION 'That pokemon is already rostered';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM transaction_items ti JOIN transactions t ON t.id = ti.transaction_id
+      WHERE t.season_id = p_season_id AND t.type = 'free_agency'
+        AND ti.team_id = p_team_id AND ti.pokemon_id = p_pokemon_id AND ti.action = 'drop'
+    ) THEN
+      RAISE EXCEPTION 'Your team already dropped this pokemon and cannot re-add it this season';
     END IF;
 
     SELECT COUNT(*) INTO v_slot_count FROM rosters

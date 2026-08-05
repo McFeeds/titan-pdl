@@ -6,6 +6,7 @@ import { getEffectiveness, POKEMON_TYPES, TYPE_COLORS } from "@/lib/pokemon-type
 import { Conference, PokemonWithMoves } from "@/types/database";
 import { addFreeAgent, submitDraftPick } from "@/lib/roster-actions";
 import DraftPickModal from "@/components/DraftPickModal";
+import PokemonSearchList, { type SearchablePokemon } from "@/components/PokemonSearchList";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -267,6 +268,7 @@ interface Props {
   pointBudget: number;
   faTokens: number;
   faTokensUsedByTeam: Record<number, number>;
+  droppedByUserTeam: number[];
 }
 
 
@@ -283,6 +285,7 @@ export default function DraftBoard({
   pointBudget,
   faTokens,
   faTokensUsedByTeam: initialFaTokensUsedByTeam,
+  droppedByUserTeam,
 }: Props) {
   const router = useRouter();
   const defaultConferenceId = userConferenceId ?? conferences[0]?.id ?? null;
@@ -372,6 +375,7 @@ export default function DraftBoard({
 
   // Modal state for the pool-tab click-to-draft/add flow
   const [pickingPokemon, setPickingPokemon] = useState<PokemonWithMoves | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -530,10 +534,13 @@ export default function DraftBoard({
     };
   }, [activeSeasonId, teams]);
 
-  const draftedIds =
-    selectedConferenceId !== null
-      ? (draftedMap[selectedConferenceId] ?? new Set<number>())
-      : new Set<number>();
+  const draftedIds = useMemo(
+    () =>
+      selectedConferenceId !== null
+        ? (draftedMap[selectedConferenceId] ?? new Set<number>())
+        : new Set<number>(),
+    [selectedConferenceId, draftedMap]
+  );
 
   const filterFn = useMemo(
     () => buildFilter(debouncedQuery, pokemon),
@@ -558,6 +565,11 @@ export default function DraftBoard({
   const pokemonById = useMemo(
     () => new Map(pokemon.map((p) => [p.id, p])),
     [pokemon]
+  );
+
+  const undraftedForPicker = useMemo(
+    () => pokemon.filter((p) => !draftedIds.has(p.id)),
+    [pokemon, draftedIds]
   );
 
   const teamsForConference = useMemo(
@@ -607,14 +619,30 @@ export default function DraftBoard({
 
   const myTeamRosterSize = myTeamPokemonIds.size;
 
+  const droppedByUserTeamSet = useMemo(() => new Set(droppedByUserTeam), [droppedByUserTeam]);
+
   const pickingDisabledReason = useMemo(() => {
     if (!pickingPokemon || clickMode === null) return null;
     if (clickMode === "draft" && onClockTeamId !== userTeamId) return "It's not your team's turn to pick.";
+    if (clickMode === "add" && droppedByUserTeamSet.has(pickingPokemon.id)) {
+      return "Your team already dropped this pokemon and can't re-add it.";
+    }
     if (myTeamRosterSize >= DRAFT_SLOT_COUNT) return "Your roster is full.";
     if (myTeamSpent + pickingPokemon.point_value > pointBudget) return "Not enough points remaining.";
     if (clickMode === "add" && myFaTokensUsed >= faTokens) return "No free agency tokens remaining.";
     return null;
-  }, [pickingPokemon, clickMode, onClockTeamId, userTeamId, myTeamRosterSize, myTeamSpent, pointBudget, myFaTokensUsed, faTokens]);
+  }, [
+    pickingPokemon,
+    clickMode,
+    onClockTeamId,
+    userTeamId,
+    droppedByUserTeamSet,
+    myTeamRosterSize,
+    myTeamSpent,
+    pointBudget,
+    myFaTokensUsed,
+    faTokens,
+  ]);
 
   async function handleConfirmPick() {
     if (!pickingPokemon || clickMode === null) return { error: "Nothing to submit" };
@@ -760,11 +788,26 @@ export default function DraftBoard({
                 nextPickNumber={nextPickNumber}
                 teamCount={teamsForConference.length}
                 pointBudget={pointBudget}
+                userTeamId={userTeamId}
+                canPick={clickMode !== null}
+                onOpenPicker={() => setPickerOpen(true)}
               />
             </div>
           </div>
         )}
       </div>
+
+      {pickerOpen && clickMode !== null && (
+        <PokemonPickerModal
+          pokemon={undraftedForPicker}
+          onPick={(p) => {
+            const full = pokemonById.get(p.id);
+            if (full) setPickingPokemon(full);
+            setPickerOpen(false);
+          }}
+          onClose={() => setPickerOpen(false)}
+        />
+      )}
 
       {pickingPokemon && clickMode !== null && (
         <DraftPickModal
@@ -782,6 +825,38 @@ export default function DraftBoard({
   );
 }
 
+function PokemonPickerModal({
+  pokemon,
+  onPick,
+  onClose,
+}: {
+  pokemon: SearchablePokemon[];
+  onPick: (pokemon: SearchablePokemon) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="bg-[#0f0f23] border border-white/10 rounded-2xl w-full max-w-sm shadow-2xl p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-white font-bold text-sm">Choose a pokemon</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-white text-sm font-bold px-1"
+          >
+            ✕
+          </button>
+        </div>
+        <PokemonSearchList pokemon={pokemon} onPick={onPick} maxHeightClassName="max-h-96" />
+      </div>
+    </div>
+  );
+}
+
 function TeamsView({
   teams,
   teamRosterMap,
@@ -792,6 +867,9 @@ function TeamsView({
   nextPickNumber,
   teamCount,
   pointBudget,
+  userTeamId,
+  canPick,
+  onOpenPicker,
 }: {
   teams: TeamDraftInfo[];
   teamRosterMap: Record<number, Set<number>>;
@@ -802,6 +880,9 @@ function TeamsView({
   nextPickNumber: number;
   teamCount: number;
   pointBudget: number;
+  userTeamId: number | null;
+  canPick: boolean;
+  onOpenPicker: () => void;
 }) {
   if (teams.length === 0) {
     return (
@@ -845,6 +926,8 @@ function TeamsView({
           const remaining = pointBudget - spent;
           const onClock = team.id === onClockTeamId;
           const ended = isDraftActive && !!draftEndedMap[team.id];
+          const isMyTeam = team.id === userTeamId;
+          const canPickIntoThisTeam = isMyTeam && canPick && pokemonList.length < DRAFT_SLOT_COUNT;
 
           return (
             <div
@@ -852,7 +935,9 @@ function TeamsView({
               className={`bg-white/5 border rounded-2xl p-4 flex flex-col min-w-0 transition-colors ${
                 onClock
                   ? "border-emerald-400 ring-2 ring-emerald-400/50 shadow-lg shadow-emerald-500/20"
-                  : "border-white/10"
+                  : canPickIntoThisTeam
+                    ? "border-indigo-400/40"
+                    : "border-white/10"
               }`}
             >
               <div className="flex items-center gap-2 mb-3">
@@ -884,7 +969,12 @@ function TeamsView({
 
               <div className="grid grid-cols-6 gap-2">
                 {Array.from({ length: DRAFT_SLOT_COUNT }).map((_, i) => (
-                  <DraftSlot key={i} slotNumber={i + 1} pokemon={pokemonList[i]} />
+                  <DraftSlot
+                    key={i}
+                    slotNumber={i + 1}
+                    pokemon={pokemonList[i]}
+                    onClick={!pokemonList[i] && canPickIntoThisTeam ? onOpenPicker : undefined}
+                  />
                 ))}
               </div>
 
@@ -911,16 +1001,27 @@ function TeamsView({
 function DraftSlot({
   slotNumber,
   pokemon,
+  onClick,
 }: {
   slotNumber: number;
   pokemon: PokemonWithMoves | undefined;
+  onClick?: () => void;
 }) {
   if (!pokemon) {
     return (
       <div className="flex flex-col items-center gap-0.5">
-        <div className="w-full aspect-square rounded-lg border border-dashed border-white/10 flex items-center justify-center text-gray-700 text-[10px]">
-          {slotNumber}
-        </div>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={!onClick}
+          className={`w-full aspect-square rounded-lg border border-dashed flex items-center justify-center text-[10px] transition-colors ${
+            onClick
+              ? "border-indigo-400/60 text-indigo-400 hover:border-indigo-400 hover:bg-indigo-500/10 cursor-pointer"
+              : "border-white/10 text-gray-700 cursor-default"
+          }`}
+        >
+          {onClick ? "+" : slotNumber}
+        </button>
         <span className="text-[9px] leading-tight">&nbsp;</span>
       </div>
     );

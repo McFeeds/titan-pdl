@@ -98,7 +98,7 @@ export default async function MyTeamPage() {
 
     supabase
       .from("team_seasons")
-      .select("conference_id, draft_position, draft_ended_at")
+      .select("conference_id, draft_position, draft_ended_at, fa_tokens_adjustment")
       .eq("team_id", teamId)
       .eq("season_id", activeSeason.id)
       .maybeSingle(),
@@ -236,7 +236,6 @@ export default async function MyTeamPage() {
   // team that ended early is correctly never shown as on the clock.
   let isOnClock = false;
   if (draftMode === "drafting" && conferenceTeamSeasons) {
-    const picksSoFar = draftLog?.length ?? 0;
     const picksMadeByTeam = new Map<number, number>();
     for (const row of draftLog ?? []) {
       picksMadeByTeam.set(row.team_id, (picksMadeByTeam.get(row.team_id) ?? 0) + 1);
@@ -247,15 +246,17 @@ export default async function MyTeamPage() {
       draftEnded: ts.draft_ended_at !== null,
       picksMade: picksMadeByTeam.get(ts.team_id) ?? 0,
     }));
-    isOnClock = computeOnClockTeamId(teamStates, picksSoFar) === teamId;
+    isOnClock = computeOnClockTeamId(teamStates) === teamId;
   }
 
   const myDraftEnded = teamSeason?.draft_ended_at !== null && teamSeason?.draft_ended_at !== undefined;
 
-  // FA tokens used so far this season
+  // FA tokens used so far this season, and the effective limit — season
+  // default plus any admin correction (team_seasons.fa_tokens_adjustment).
   const faTokensUsed = (transactionItems ?? []).filter(
     (item) => item.team_id === teamId && item.action === "add" && seasonFreeAgencyTxIds.has(item.transaction_id)
   ).length;
+  const faTokens = activeSeason.fa_tokens + (teamSeason?.fa_tokens_adjustment ?? 0);
 
   const pointsSpent = roster.reduce((sum, p) => sum + p.point_value, 0);
 
@@ -277,7 +278,7 @@ export default async function MyTeamPage() {
       myDraftEnded={myDraftEnded}
       pointBudget={activeSeason.point_budget}
       pointsSpent={pointsSpent}
-      faTokens={activeSeason.fa_tokens}
+      faTokens={faTokens}
       faTokensUsed={faTokensUsed}
       undraftedPokemon={undraftedPokemon ?? []}
     />

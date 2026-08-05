@@ -66,6 +66,7 @@ export interface TeamSeason {
   group_id: number | null;
   draft_position: number | null;
   draft_ended_at: string | null;
+  fa_tokens_adjustment: number;
 }
 
 export interface TeamMember {

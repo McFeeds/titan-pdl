@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/client";
-import { computeOnClockTeamId, type DraftTeamState } from "@/lib/draft";
+import { computeOnClockTeamId, GO_TO_DRAFT_POOL_EVENT, type DraftTeamState } from "@/lib/draft";
 
 // Mounted once in the root layout so it's present on every page — tracks
 // whether the logged-in user's team is on the clock in an active draft and
@@ -14,7 +14,6 @@ export default function DraftTurnAlert() {
   const [conferenceId, setConferenceId] = useState<number | null>(null);
 
   const [isDraftActive, setIsDraftActive] = useState(false);
-  const [picksSoFar, setPicksSoFar] = useState(0);
   const [teamStates, setTeamStates] = useState<DraftTeamState[]>([]);
 
   const [dismissed, setDismissed] = useState(false);
@@ -108,7 +107,6 @@ export default function DraftTurnAlert() {
       }
 
       setIsDraftActive(draftState?.is_active ?? false);
-      setPicksSoFar(draftLog?.length ?? 0);
       setTeamStates(
         (conferenceTeamSeasons ?? []).map((ts) => ({
           id: ts.team_id,
@@ -135,7 +133,6 @@ export default function DraftTurnAlert() {
           };
           if (row.season_id !== seasonId || row.conference_id !== conferenceId) return;
           pickIdToTeamRef.current.set(row.id, row.team_id);
-          setPicksSoFar((p) => p + 1);
           setTeamStates((prev) =>
             prev.map((t) => (t.id === row.team_id ? { ...t, picksMade: t.picksMade + 1 } : t))
           );
@@ -149,7 +146,6 @@ export default function DraftTurnAlert() {
           const pickTeamId = pickIdToTeamRef.current.get(row.id);
           if (pickTeamId === undefined) return;
           pickIdToTeamRef.current.delete(row.id);
-          setPicksSoFar((p) => Math.max(0, p - 1));
           setTeamStates((prev) =>
             prev.map((t) => (t.id === pickTeamId ? { ...t, picksMade: Math.max(0, t.picksMade - 1) } : t))
           );
@@ -199,8 +195,8 @@ export default function DraftTurnAlert() {
 
   const onClockTeamId = useMemo(() => {
     if (!isDraftActive || teamStates.length === 0) return null;
-    return computeOnClockTeamId(teamStates, picksSoFar);
-  }, [isDraftActive, teamStates, picksSoFar]);
+    return computeOnClockTeamId(teamStates);
+  }, [isDraftActive, teamStates]);
 
   const isMyTurn = teamId !== null && onClockTeamId === teamId;
 
@@ -246,6 +242,7 @@ export default function DraftTurnAlert() {
       <span className="text-sm font-bold whitespace-nowrap">It&apos;s your turn to pick!</span>
       <Link
         href="/draft-pools"
+        onClick={() => window.dispatchEvent(new Event(GO_TO_DRAFT_POOL_EVENT))}
         className="text-xs font-bold bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
       >
         Go to Draft

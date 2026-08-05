@@ -13,10 +13,14 @@ export default async function AdminRostersPage() {
     { data: conferences },
     { data: draftStates },
     { data: draftLog },
+    { data: transactions },
+    { data: transactionItems },
   ] = await Promise.all([
-    supabase.from("seasons").select("id, name").order("created_at", { ascending: false }),
+    supabase.from("seasons").select("id, name, fa_tokens").order("created_at", { ascending: false }),
     supabase.from("teams").select("id, team_name").order("team_name"),
-    supabase.from("team_seasons").select("team_id, season_id, conference_id, draft_ended_at"),
+    supabase
+      .from("team_seasons")
+      .select("team_id, season_id, conference_id, draft_ended_at, fa_tokens_adjustment"),
     supabase.from("pokemon").select("id, name").order("name"),
     supabase.from("rosters").select("pokemon_id, season_id, conference_id, team_id, pokemon(name)"),
     supabase.from("conferences").select("id, name").order("name"),
@@ -25,7 +29,24 @@ export default async function AdminRostersPage() {
       .from("draft_log")
       .select("id, season_id, conference_id, pick_number, team_id, pokemon_id, created_at, pokemon(name)")
       .order("pick_number"),
+    supabase.from("transactions").select("id, season_id, type"),
+    supabase.from("transaction_items").select("transaction_id, team_id, action"),
   ]);
+
+  // Free agency tokens used so far, per team+season — lets the admin see
+  // how many of a team's tokens are already spent before adjusting them.
+  const freeAgencyTxIds = new Set(
+    (transactions ?? []).filter((t) => t.type === "free_agency").map((t) => t.id)
+  );
+  const txSeasonById = new Map((transactions ?? []).map((t) => [t.id, t.season_id]));
+  const faTokensUsedByTeamSeason: Record<string, number> = {};
+  for (const item of transactionItems ?? []) {
+    if (item.action !== "add" || !freeAgencyTxIds.has(item.transaction_id)) continue;
+    const seasonId = txSeasonById.get(item.transaction_id);
+    if (seasonId === undefined) continue;
+    const key = `${seasonId}:${item.team_id}`;
+    faTokensUsedByTeamSeason[key] = (faTokensUsedByTeamSeason[key] ?? 0) + 1;
+  }
 
   return (
     <div>
@@ -41,6 +62,7 @@ export default async function AdminRostersPage() {
         draftStates={draftStates ?? []}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         draftLog={(draftLog ?? []) as any}
+        faTokensUsedByTeamSeason={faTokensUsedByTeamSeason}
       />
     </div>
   );

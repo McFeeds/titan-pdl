@@ -139,3 +139,36 @@ export async function revertDraftToPick(seasonId: number, conferenceId: number, 
   revalidatePath("/draft-pools");
   revalidatePath("/my-team");
 }
+
+export async function updateTeamFaTokenAdjustment(seasonId: number, teamId: number, adjustment: number) {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { error } = await admin
+    .from("team_seasons")
+    .update({ fa_tokens_adjustment: adjustment })
+    .eq("season_id", seasonId)
+    .eq("team_id", teamId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/rosters");
+  revalidatePath("/draft-pools");
+  revalidatePath("/my-team");
+}
+
+export async function resetDraftHistory() {
+  await requireAdmin();
+
+  const admin = createAdminClient();
+  const { error } = await admin.rpc("admin_reset_draft_history");
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/admin/rosters");
+  revalidatePath("/draft-pools");
+  revalidatePath("/my-team");
+  revalidatePath("/schedules");
+  revalidatePath("/standings");
+  revalidatePath("/hall-of-fame");
+}

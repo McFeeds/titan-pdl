@@ -8,6 +8,7 @@ import type { Pokemon, RosterPokemon } from "@/types/database";
 import { updateRosterNickname } from "./actions";
 import { addFreeAgent, dropFreeAgent, endMyDraft, submitDraftPick } from "@/lib/roster-actions";
 import DraftPickModal from "@/components/DraftPickModal";
+import PokemonSearchList from "@/components/PokemonSearchList";
 import SubmitResultsModal from "./SubmitResultsModal";
 
 // --- Types ---
@@ -612,13 +613,6 @@ function AddPokemonPanel({
   onPick: (pokemon: UndraftedPokemon) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-
-  const results = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const matches = q ? undraftedPokemon.filter((p) => p.name.toLowerCase().includes(q)) : undraftedPokemon;
-    return matches.slice(0, 25);
-  }, [query, undraftedPokemon]);
 
   if (!open) {
     return (
@@ -633,37 +627,18 @@ function AddPokemonPanel({
 
   return (
     <div className="bg-white/5 border border-white/10 rounded-xl p-3 mb-2">
-      <div className="flex items-center gap-2 mb-2">
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search pokemon…"
-          className="flex-1 bg-[#0d0d1f] border border-white/10 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-        />
+      <div className="flex items-center justify-end mb-2">
         <button
-          onClick={() => { setOpen(false); setQuery(""); }}
+          onClick={() => setOpen(false)}
           className="text-xs text-gray-500 hover:text-white transition-colors"
         >
           Cancel
         </button>
       </div>
-      <div className="max-h-56 overflow-y-auto flex flex-col gap-0.5">
-        {results.length === 0 ? (
-          <p className="text-xs text-gray-600 italic px-2 py-1">No pokemon found.</p>
-        ) : (
-          results.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => { onPick(p); setOpen(false); setQuery(""); }}
-              className="flex items-center justify-between px-2 py-1.5 rounded-lg hover:bg-white/10 transition-colors text-left"
-            >
-              <span className="text-sm text-gray-200">{p.name}</span>
-              <span className="text-xs font-mono text-gray-500">{p.point_value} pts</span>
-            </button>
-          ))
-        )}
-      </div>
+      <PokemonSearchList
+        pokemon={undraftedPokemon}
+        onPick={(p) => { onPick(p as UndraftedPokemon); setOpen(false); }}
+      />
     </div>
   );
 }

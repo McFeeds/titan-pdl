@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createAdminClient, requireAdmin } from "@/lib/supabase/admin";
+import { DRAFT_SLOT_COUNT } from "@/lib/draft";
 
 type State = { error?: string } | null;
 
@@ -34,6 +35,7 @@ export async function addRosterEntry(prevState: State, formData: FormData): Prom
       p_conference_id: conference_id,
       p_team_id: team_id,
       p_pokemon_id: pokemon_id,
+      p_max_slots: DRAFT_SLOT_COUNT,
     });
     if (error) return { error: error.message };
   } else {

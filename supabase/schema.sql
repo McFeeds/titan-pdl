@@ -316,20 +316,23 @@ $$;
 -- Atomically adds a pokemon to a team's roster and appends the next
 -- sequential pick_number to draft_log. An advisory lock keyed on
 -- (season_id, conference_id) keeps concurrent picks from racing on
--- the pick_number computation. Also auto-ends the team afterward if they
--- can no longer afford anything undrafted, so compute_on_clock_team()
--- correctly skips them going forward.
+-- the pick_number computation. Also auto-ends the team afterward if their
+-- roster is now full or they can no longer afford anything undrafted, so
+-- compute_on_clock_team() correctly skips them going forward and
+-- close_conference_draft_if_all_ended() can actually see the draft finish.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION record_draft_pick(
   p_season_id     INTEGER,
   p_conference_id INTEGER,
   p_team_id       INTEGER,
-  p_pokemon_id    INTEGER
+  p_pokemon_id    INTEGER,
+  p_max_slots     INTEGER DEFAULT 12
 ) RETURNS INTEGER
 LANGUAGE plpgsql
 AS $$
 DECLARE
   v_pick_number     INTEGER;
+  v_slot_count      INTEGER;
   v_point_budget    INTEGER;
   v_spent           INTEGER;
   v_can_afford_more BOOLEAN;
@@ -346,6 +349,9 @@ BEGIN
   INSERT INTO draft_log (season_id, conference_id, pick_number, team_id, pokemon_id)
   VALUES (p_season_id, p_conference_id, v_pick_number, p_team_id, p_pokemon_id);
 
+  SELECT COUNT(*) INTO v_slot_count FROM rosters
+    WHERE team_id = p_team_id AND season_id = p_season_id;
+
   SELECT point_budget INTO v_point_budget FROM seasons WHERE id = p_season_id;
   SELECT COALESCE(SUM(po.point_value), 0) INTO v_spent
     FROM rosters r JOIN pokemon po ON po.id = r.pokemon_id
@@ -360,7 +366,7 @@ BEGIN
       )
   ) INTO v_can_afford_more;
 
-  IF NOT v_can_afford_more THEN
+  IF v_slot_count >= p_max_slots OR NOT v_can_afford_more THEN
     UPDATE team_seasons SET draft_ended_at = COALESCE(draft_ended_at, NOW())
       WHERE team_id = p_team_id AND season_id = p_season_id;
     PERFORM close_conference_draft_if_all_ended(p_season_id, p_conference_id);
@@ -400,9 +406,9 @@ $$;
 -- it's this team's turn (compute_on_clock_team — mirrors
 -- computeOnClockTeamId() in src/lib/draft.ts, keep both in sync), pokemon
 -- isn't already drafted, roster has room, and the pick fits the season's
--- point budget. Afterward, auto-ends the team if they can no longer afford
--- anything undrafted. record_draft_pick is left untouched for the admin
--- override flow, which intentionally skips the turn/ended checks.
+-- point budget. Afterward, auto-ends the team if their roster is now full
+-- or they can no longer afford anything undrafted. record_draft_pick gets
+-- the same auto-end treatment but skips the turn/ended checks (admin override).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION submit_draft_pick(
   p_season_id     INTEGER,
@@ -478,7 +484,8 @@ BEGIN
   INSERT INTO draft_log (season_id, conference_id, pick_number, team_id, pokemon_id)
     VALUES (p_season_id, p_conference_id, v_next_pick, p_team_id, p_pokemon_id);
 
-  -- Auto-end: if nothing left in the pool fits the team's remaining budget
+  -- Auto-end: roster is now full, or nothing left in the pool fits the
+  -- team's remaining budget.
   v_remaining := v_point_budget - (v_spent + v_point_value);
   SELECT EXISTS (
     SELECT 1 FROM pokemon p
@@ -489,7 +496,7 @@ BEGIN
       )
   ) INTO v_can_afford_more;
 
-  IF NOT v_can_afford_more THEN
+  IF (v_slot_count + 1) >= p_max_slots OR NOT v_can_afford_more THEN
     UPDATE team_seasons SET draft_ended_at = COALESCE(draft_ended_at, NOW())
       WHERE team_id = p_team_id AND season_id = p_season_id;
     PERFORM close_conference_draft_if_all_ended(p_season_id, p_conference_id);
@@ -502,6 +509,8 @@ $$;
 
 -- ------------------------------------------------------------
 -- SUBMIT FREE AGENCY MOVE (player-facing add/drop, post-draft)
+-- A team that drops a pokemon can never pick that same pokemon back up for
+-- the rest of the season (other teams are unaffected).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION submit_free_agency_move(
   p_season_id     INTEGER,
@@ -538,6 +547,14 @@ BEGIN
       WHERE pokemon_id = p_pokemon_id AND conference_id = p_conference_id AND season_id = p_season_id
     ) THEN
       RAISE EXCEPTION 'That pokemon is already rostered';
+    END IF;
+
+    IF EXISTS (
+      SELECT 1 FROM transaction_items ti JOIN transactions t ON t.id = ti.transaction_id
+      WHERE t.season_id = p_season_id AND t.type = 'free_agency'
+        AND ti.team_id = p_team_id AND ti.pokemon_id = p_pokemon_id AND ti.action = 'drop'
+    ) THEN
+      RAISE EXCEPTION 'Your team already dropped this pokemon and cannot re-add it this season';
     END IF;
 
     SELECT COUNT(*) INTO v_slot_count FROM rosters

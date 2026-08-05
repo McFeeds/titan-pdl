@@ -109,7 +109,7 @@ export default async function MyTeamPage() {
       .order("name"),
 
     supabase.from("transactions").select("id, season_id, type"),
-    supabase.from("transaction_items").select("transaction_id, team_id, action"),
+    supabase.from("transaction_items").select("transaction_id, team_id, action, pokemon_id"),
   ]);
 
   // Conference-scoped data (draft state, roster-wide pokemon, team count)
@@ -210,9 +210,26 @@ export default async function MyTeamPage() {
   if (draftState?.is_active) draftMode = "drafting";
   else if (draftState?.started_at) draftMode = "free_agency";
 
-  // Undrafted pokemon in this team's conference, for the add picker
+  // Undrafted pokemon in this team's conference, for the add picker — also
+  // excludes anything this team has already dropped this season, since
+  // they're not allowed to pick it back up.
   const rosteredIds = new Set((conferenceRosters ?? []).map((r) => r.pokemon_id));
-  const undraftedPokemon = (allPokemon ?? []).filter((p) => !rosteredIds.has(p.id));
+  const seasonFreeAgencyTxIds = new Set(
+    (transactions ?? [])
+      .filter((t) => t.season_id === activeSeason.id && t.type === "free_agency")
+      .map((t) => t.id)
+  );
+  const droppedByMeIds = new Set(
+    (transactionItems ?? [])
+      .filter(
+        (item) =>
+          item.team_id === teamId && item.action === "drop" && seasonFreeAgencyTxIds.has(item.transaction_id)
+      )
+      .map((item) => item.pokemon_id)
+  );
+  const undraftedPokemon = (allPokemon ?? []).filter(
+    (p) => !rosteredIds.has(p.id) && !droppedByMeIds.has(p.id)
+  );
 
   // Whether this team is currently on the clock (drafting mode only) —
   // uses the same skip-aware turn math as the public draft board, so a
@@ -236,13 +253,8 @@ export default async function MyTeamPage() {
   const myDraftEnded = teamSeason?.draft_ended_at !== null && teamSeason?.draft_ended_at !== undefined;
 
   // FA tokens used so far this season
-  const seasonTransactionIds = new Set(
-    (transactions ?? [])
-      .filter((t) => t.season_id === activeSeason.id && t.type === "free_agency")
-      .map((t) => t.id)
-  );
   const faTokensUsed = (transactionItems ?? []).filter(
-    (item) => item.team_id === teamId && item.action === "add" && seasonTransactionIds.has(item.transaction_id)
+    (item) => item.team_id === teamId && item.action === "add" && seasonFreeAgencyTxIds.has(item.transaction_id)
   ).length;
 
   const pointsSpent = roster.reduce((sum, p) => sum + p.point_value, 0);

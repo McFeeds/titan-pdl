@@ -106,6 +106,7 @@ export default async function MyTeamPage() {
     supabase
       .from("pokemon")
       .select("id, name, dex_number, type_1, type_2, point_value")
+      .gt("point_value", 0) // banned pokemon (point_value = 0) never appear in the add picker
       .order("name"),
 
     supabase.from("transactions").select("id, season_id, type"),

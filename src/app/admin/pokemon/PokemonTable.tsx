@@ -68,9 +68,13 @@ function Row({ pokemon }: { pokemon: Pokemon }) {
         ) : (
           <button
             onClick={() => setEditing(true)}
-            className="text-sm text-white tabular-nums hover:text-indigo-300 transition-colors"
+            className={`text-sm tabular-nums transition-colors ${
+              pokemon.point_value === 0
+                ? "text-red-400 hover:text-red-300 font-semibold"
+                : "text-white hover:text-indigo-300"
+            }`}
           >
-            {pokemon.point_value} pts
+            {pokemon.point_value === 0 ? "Banned" : `${pokemon.point_value} pts`}
           </button>
         )}
       </td>

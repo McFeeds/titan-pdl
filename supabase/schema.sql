@@ -488,6 +488,7 @@ BEGIN
 
   SELECT point_value INTO v_point_value FROM pokemon WHERE id = p_pokemon_id;
   IF v_point_value IS NULL THEN RAISE EXCEPTION 'Pokemon not found'; END IF;
+  IF v_point_value = 0 THEN RAISE EXCEPTION 'That pokemon is banned'; END IF;
 
   SELECT COUNT(*) INTO v_slot_count FROM rosters
     WHERE team_id = p_team_id AND season_id = p_season_id;
@@ -564,6 +565,8 @@ BEGIN
     WHERE s.id = p_season_id;
 
   IF p_action = 'add' THEN
+    IF v_point_value = 0 THEN RAISE EXCEPTION 'That pokemon is banned'; END IF;
+
     IF EXISTS (
       SELECT 1 FROM rosters
       WHERE pokemon_id = p_pokemon_id AND conference_id = p_conference_id AND season_id = p_season_id

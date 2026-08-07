@@ -29,7 +29,7 @@ Sneasler	21	21
 Spectrier	Ban	0
 Ursaluna-Bloodmoon	Ban	0
 Urshifu	21	21
-Walking Wake	21	21
+Walking Wake	21	19
 Alakazam-Mega		0
 Blastoise-Mega		0
 Blaziken-Mega		0
@@ -44,21 +44,22 @@ Alomomola		15
 Diancie-Mega		20
 Dragonite		19
 Garchomp-Mega		15
+Typhlosion-Hisui		8
 Garchomp		20
 Kingambit		20
 Landorus-Therian		20
 Ogerpon-Wellspring		20
 Slowking-Galar		18
 Tapu Lele		21
-Toxapex		17
-Zapdos		18
+Toxapex		14
+Zapdos		17
 Cinderace		15
 Ferrothorn		15
-Gliscor		17
+Gliscor		16
 Great Tusk		19
 Pecharunt		18
-Samurott-Hisui		17
-Terapogos-Terastal		19
+Samurott-Hisui		16
+Terapagos		19
 Tornadus-Therian		18
 Urshifu-Rapid-Strike		20
 Ceruledge		15
@@ -67,7 +68,7 @@ Corviknight		19
 Hatterene		17
 Heatran		20
 Iron Treads		16
-Kyurem		18
+Kyurem		19
 Latios-Mega		20
 Lopunny-Mega		18
 Moltres		14
@@ -79,9 +80,9 @@ Raging Bolt		19
 Scizor-Mega		17
 Slowbro		16
 Charizard-Mega-X		16
-Tyranitar-Mega		17
+Tyranitar-Mega		16
 Weavile		17
-Blissey		13
+Blissey		9
 Dondozo		16
 Iron Hands		20
 Iron Moth		17
@@ -94,7 +95,7 @@ Amoonguss		17
 Archaludon		20
 Blaziken		13
 Celesteela		17
-Chansey		12
+Chansey		8
 Clodsire		12
 Garganacl		13
 Hydrapple		13
@@ -143,7 +144,7 @@ Houndoom-Mega		10
 Mimikyu		14
 Ribombee		14
 Rotom-Wash		14
-Tangrowth		12
+Tangrowth		11
 Regieleki		16
 Thundurus		18
 Tornadus		17
@@ -153,32 +154,31 @@ Necrozma		17
 Basculegion-Male		16
 Incineroar		16
 Latios		17
-Smeargle		18
+Smeargle		15
 Entei		15
 Grimmsnarl		16
 Indeedee-F		16
 Togekiss		15
 Blastoise		15
 Clefairy		12
-Diance		15
+Diancie		15
 Enamorus-Therian		14
 Gothitelle		11
 Maushold		15
 Politoed		14
-Porygon2		16
-Ting Lu		17
+Porygon2		14
 Arcanine		15
 Brute Bonnet		14
 Deoxys-Defense		15
 Farigiraf		15
 Hydreigon		15
-Infernape		12
+Infernape		13
 Klefki		14
 Nihilego		15
 Stakataka		14
 Tatsugiri		10
 Thundurus-Therian		15
-Tyranitar		16
+Tyranitar		15
 Wo-Chien		11
 Armarouge		14
 Conkeldurr		14
@@ -191,7 +191,7 @@ Iron Jugulis		14
 Iron Leaves		12
 Kingdra		11
 Latias-Mega		17
-Latias		15
+Latias		14
 Meowstic		12
 Raichu		10
 Salamence		14
@@ -203,8 +203,8 @@ Zapdos-Galar		15
 Arcanine-Hisui		12
 Azumarill		14
 Breloom		11
-Chandelure-Mega		13
-Chandelure		13
+Chandelure-Mega		11
+Chandelure		11
 Comfey		12
 Crobat		12
 Houndstone		9
@@ -265,7 +265,7 @@ Muk-Alola		11
 Obstagoon		10
 PorygonZ		11
 Rhyperior		11
-Rotom-Mow		11
+Rotom-Mow		10
 Silvally		11
 Staraptor		11
 Swampert		11
@@ -329,14 +329,13 @@ Slaking		10
 Slowbro-Galar		12
 Sneasel		8
 Starmie		9
-Umbreon		9
+Umbreon		8
 Vaporeon		9
 Vikavolt		9
 Vivillon		10
 Wartortle		12
 Zoroark		8
 Ambipom		8
-Aromatise		8
 Braviary		8
 Centiskorch		7
 Cetitan		9
@@ -372,7 +371,7 @@ Accelgor		8
 Archeops		7
 Decidueye-Hisui		8
 Drampa		7
-Drapeon		7
+Drapion		7
 Exploud		7
 Florges		9
 Froslass		7
@@ -404,7 +403,6 @@ Steelix		7
 Stoutland		7
 Tangela		9
 Trevenant		7
-Typhlsion-Hisui		10
 Ursaring		6
 Victreebel		7
 Virizion		9
@@ -500,7 +498,6 @@ Camerupt		4
 Cinccino		6
 Clawitzer		4
 Claydol		5
-Clodsire		4
 Abomasnow		5
 Abomasnow-Mega		6
 Crabominable		4
@@ -545,14 +542,14 @@ Sharpedo-Mega		9
 Pidgeot-Mega		10
 Heracross-Mega		10
 Altaria-Mega		11
-Altaria		3
+Altaria		5
 Ampharos		3
 Appletun		3
 Arbok		3
 Avalugg		5
 Avalugg-Hisui		5
 Glalie-Mega		5
-Banette-Mega		8
+Banette-Mega		10
 Banette		3
 Barbaracle		3
 Bastiodon		6
@@ -702,7 +699,7 @@ Scolipede-Mega		12
 Scrafty-Mega		16
 Eelektross-Mega		14
 Delphox-Mega		20
-Greninja-Mega		16
+Greninja-Mega		17
 Pyroar-Mega		15
 Floette-Mega		17
 Malamar-Mega		6

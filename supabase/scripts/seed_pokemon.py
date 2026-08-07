@@ -91,9 +91,25 @@ SLUG_OVERRIDES: dict[str, str] = {
     "PorygonZ":           "porygon-z",
     "Porygon2":           "porygon2",
     # Tauros-Paldea without a subtype → combat form is the default
-    "Tauros-Paldea":      "tauros-paldea-combat",
+    "Tauros-Paldea":      "tauros-paldea-combat-breed",
     # PokeAPI's default basculegion is the female form
     "Basculegion-Female": "basculegion",
+    # Multi-form species without a bare/default PokeAPI slug
+    "Darmanitan-Galar":   "darmanitan-galar-standard",
+    "Deoxys":             "deoxys-normal",
+    # Punctuation PokeAPI slugs don't accept
+    "Type: Null":         "type-null",
+    # Typos in pokemon-tiering.txt that don't mechanically slug to the real name
+    "Diance":             "diancie",
+    "Blacephelon":        "blacephalon",
+    "Ilumise":            "illumise",
+    # Ogerpon masks use a "-mask" suffix PokeAPI slug
+    "Ogerpon-Cornerstone": "ogerpon-cornerstone-mask",
+    "Ogerpon-Hearthflame": "ogerpon-hearthflame-mask",
+    "Ogerpon-Wellspring":  "ogerpon-wellspring-mask",
+    # PokeAPI split this custom-mega slug into gendered variants after our
+    # original seed; either resolves to the same base species for movesets.
+    "Meowstic-Mega":       "meowstic-male-mega",
 }
 
 
@@ -349,20 +365,13 @@ def _moves_by_priority(learnset: dict) -> set[str]:
     return set()
 
 
-def _resolve_learnset(poke_id: str, api_data: dict, learnset_source: dict) -> tuple[dict, bool]:
-    """Look up a Pokemon's learnset in a given source, falling back to base species for forms."""
-    entry = learnset_source.get(poke_id)
+def _resolve_learnset(species_id: str, learnset_source: dict) -> dict:
+    """Look up a learnset in a given source, by national-dex (base species)
+    Showdown ID."""
+    entry = learnset_source.get(species_id)
     if entry:
-        return _extract_learnset(entry), False
-
-    species_name = api_data.get("species", {}).get("name", "")
-    base_id = _showdown_id(species_name)
-    if base_id and base_id != poke_id:
-        base_entry = learnset_source.get(base_id)
-        if base_entry:
-            return _extract_learnset(base_entry), True
-
-    return {}, False
+        return _extract_learnset(entry)
+    return {}
 
 
 def get_learnable_slugs(
@@ -371,31 +380,37 @@ def get_learnable_slugs(
     champions_learnsets: dict,
     move_slugs: set[str],
 ) -> tuple[set[str], bool]:
-    """Return (learnable_important_move_slugs, used_base_form_fallback).
+    """Return (learnable_important_move_slugs, is_form).
+
+    Every Pokemon — including megas, regional forms, and other variants —
+    always uses its national-dex (base species) moveset, never a
+    form-specific one; is_form reports whether this row itself is such a
+    variant (its own name differs from its base species).
 
     Priority:
-      1. Champions mod learnset — if the Pokemon has an entry, use it.
-      2. Base learnsets with generation priority (Gen 9 → Gen 8 → … → Gen 1).
-    Megas and other forms with no direct entry fall back to the base species
-    in whichever source is being consulted.
+      1. Champions mod learnset for the base species.
+      2. Base learnsets for the base species, with generation priority
+         (Gen 9 → Gen 8 → … → Gen 1).
     """
     showdown_to_slug = {slug.replace("-", ""): slug for slug in move_slugs}
-    poke_id = _showdown_id(api_data["name"])
+    species_name = api_data.get("species", {}).get("name", "") or api_data["name"]
+    species_id = _showdown_id(species_name)
+    is_form = species_id != _showdown_id(api_data["name"])
 
     # 1. Champions mod
-    learnset, used_fallback = _resolve_learnset(poke_id, api_data, champions_learnsets)
+    learnset = _resolve_learnset(species_id, champions_learnsets)
     if learnset:
         available = set(learnset.keys())
-        return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, used_fallback
+        return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, is_form
 
     # 2. Base learnsets with generation-priority filtering
-    learnset, used_fallback = _resolve_learnset(poke_id, api_data, base_learnsets)
+    learnset = _resolve_learnset(species_id, base_learnsets)
     if not learnset:
-        print(f"  [WARN] No Showdown learnset for '{api_data['name']}' (id: {poke_id})")
-        return set(), False
+        print(f"  [WARN] No Showdown learnset for '{api_data['name']}' (national dex species: {species_id})")
+        return set(), is_form
 
     available = _moves_by_priority(learnset)
-    return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, used_fallback
+    return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, is_form
 
 
 # ---------------------------------------------------------------------------
@@ -495,10 +510,10 @@ def main() -> None:
 
         if api_data is not None:
             row = build_pokemon_row_from_api(api_data, display_name, point_value)
-            learnable, used_fallback = get_learnable_slugs(api_data, base_learnsets, champions_learnsets, move_slugs)
+            learnable, is_form = get_learnable_slugs(api_data, base_learnsets, champions_learnsets, move_slugs)
             learnable_map[slug] = learnable
-            label = "FALLBACK    " if used_fallback else "OK          "
-            print(f"  {label}{display_name}" + (" (moves from base form)" if used_fallback else ""))
+            label = "FORM        " if is_form else "OK          "
+            print(f"  {label}{display_name}" + (" (national dex/base species moveset)" if is_form else ""))
         else:
             print(f"  PLACEHOLDER {display_name}  (not in PokeAPI — stats need manual entry)")
             row = build_placeholder_row(display_name, point_value)

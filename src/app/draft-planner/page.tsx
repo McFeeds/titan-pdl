@@ -10,6 +10,7 @@ export default async function DraftPlannerPage() {
   const { data: rawPokemon } = await supabase
     .from("pokemon")
     .select("*, pokemon_moves(important_moves(id, name, slug))")
+    .gt("point_value", 0) // banned pokemon (point_value = 0) never appear publicly
     .order("point_value", { ascending: false })
     .order("name");
 

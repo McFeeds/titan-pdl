@@ -1,19 +1,19 @@
-Fake Out			
-Follow Me			
-Rage Powder			
-Tailwind			
-Trick Room			
-Imprison			
+Fake Out
+Follow Me
+Rage Powder
+Tailwind
+Trick Room
+Imprison
 Icy Wind
-Electroweb			
-Encore			
-Taunt			
-Thunder Wave			
-Will-O-Wisp			
-Wide Guard			
-Haze			
-Aurora Veil			
-Reflect			
+Electroweb
+Encore
+Taunt
+Thunder Wave
+Will-O-Wisp
+Wide Guard
+Haze
+Aurora Veil
+Reflect
 Light Screen
 Upper Hand
 Quick Guard
@@ -30,3 +30,29 @@ Rain Dance
 Sunny Day
 Snowscape
 Sandstorm
+Stealth Rock
+Spikes
+Toxic Spikes
+Defog
+Rapid Spin
+Wish
+Healing Wish
+Heal Bell
+Aromatherapy
+U-Turn
+Volt Switch
+Flip Turn
+Teleport
+Knock Off
+Circle Throw
+Dragon Tail
+Clear Smog
+Dragon Dance
+Swords Dance
+Shell Smash
+Shift Gear
+Belly Drum
+Bulk Up
+Calm Mind
+Nasty Plot
+Quiver Dance

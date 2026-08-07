@@ -31,6 +31,7 @@ export default async function DraftPoolsPage() {
     supabase
       .from("pokemon")
       .select("*, pokemon_moves(important_moves(id, name, slug))")
+      .gt("point_value", 0) // banned pokemon (point_value = 0) never appear publicly
       .order("point_value", { ascending: false })
       .order("name"),
     supabase.from("rosters").select("pokemon_id, conference_id, season_id, team_id"),

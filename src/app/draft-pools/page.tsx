@@ -36,7 +36,9 @@ export default async function DraftPoolsPage() {
     supabase.from("rosters").select("pokemon_id, conference_id, season_id, team_id"),
     supabase
       .from("team_seasons")
-      .select("team_id, conference_id, draft_position, season_id, draft_ended_at, teams(team_name)")
+      .select(
+        "team_id, conference_id, draft_position, season_id, draft_ended_at, fa_tokens_adjustment, teams(team_name)"
+      )
       .order("draft_position"),
     supabase.auth.getUser(),
     supabase.from("draft_log").select("id, season_id, conference_id, team_id"),
@@ -47,7 +49,7 @@ export default async function DraftPoolsPage() {
 
   const activeSeasonId = activeSeason?.id ?? null;
   const pointBudget = activeSeason?.point_budget ?? 115;
-  const faTokens = activeSeason?.fa_tokens ?? 3;
+  const baseFaTokens = activeSeason?.fa_tokens ?? 3;
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const pokemon: PokemonWithMoves[] = (rawPokemon ?? []).map((p: any) => ({
@@ -88,6 +90,14 @@ export default async function DraftPoolsPage() {
       }
     }
   }
+
+  // Effective FA token limit for the viewer's own team — season default plus
+  // any admin correction (team_seasons.fa_tokens_adjustment).
+  const userFaTokensAdjustment =
+    (teamSeasons ?? []).find(
+      (ts) => ts.team_id === userTeamId && ts.season_id === activeSeasonId
+    )?.fa_tokens_adjustment ?? 0;
+  const faTokens = baseFaTokens + userFaTokensAdjustment;
 
   // Build initial drafted pokemon per conference for the active season
   const draftedByConference = (conferences ?? []).map((conf) => ({

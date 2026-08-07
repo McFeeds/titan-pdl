@@ -8,14 +8,22 @@ import {
   forceEndTeamDraft,
   reactivateTeamDraft,
   revertDraftToPick,
+  updateTeamFaTokenAdjustment,
+  resetDraftHistory,
 } from "./actions";
 
 const selectCls =
   "px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
 
-type Season = { id: number; name: string };
+type Season = { id: number; name: string; fa_tokens: number };
 type Team = { id: number; team_name: string };
-type TeamSeason = { team_id: number; season_id: number; conference_id: number; draft_ended_at: string | null };
+type TeamSeason = {
+  team_id: number;
+  season_id: number;
+  conference_id: number;
+  draft_ended_at: string | null;
+  fa_tokens_adjustment: number;
+};
 type Pokemon = { id: number; name: string };
 type Conference = { id: number; name: string };
 type DraftState = { season_id: number; conference_id: number; is_active: boolean };
@@ -46,7 +54,117 @@ type Props = {
   conferences: Conference[];
   draftStates: DraftState[];
   draftLog: DraftLogEntry[];
+  faTokensUsedByTeamSeason: Record<string, number>;
 };
+
+function FaTokenAdjustmentInput({
+  seasonId,
+  teamId,
+  baseTokens,
+  adjustment,
+  used,
+}: {
+  seasonId: number;
+  teamId: number;
+  baseTokens: number;
+  adjustment: number;
+  used: number;
+}) {
+  const [value, setValue] = useState(adjustment);
+  const [pending, startTransition] = useTransition();
+
+  function save(next: number) {
+    startTransition(async () => {
+      await updateTeamFaTokenAdjustment(seasonId, teamId, next);
+    });
+  }
+
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-fit">
+      <span className="text-white text-sm font-medium">FA Tokens:</span>
+      <span className="text-xs text-gray-400">
+        {baseTokens} base
+        {value !== 0 && (value > 0 ? ` + ${value}` : ` − ${Math.abs(value)}`)} = {baseTokens + value} total,{" "}
+        {used} used
+      </span>
+      <label className="flex items-center gap-1.5 text-xs text-gray-500 ml-2">
+        Adjustment
+        <input
+          type="number"
+          value={value}
+          disabled={pending}
+          onChange={(e) => setValue(Number(e.target.value))}
+          onBlur={() => save(value)}
+          className="w-16 px-1.5 py-1 bg-[#0d0d1f] border border-white/10 rounded text-white text-xs focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        />
+      </label>
+    </div>
+  );
+}
+
+function DangerZone() {
+  const [confirmText, setConfirmText] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [done, setDone] = useState(false);
+
+  function handleReset() {
+    startTransition(async () => {
+      await resetDraftHistory();
+      setConfirming(false);
+      setConfirmText("");
+      setDone(true);
+    });
+  }
+
+  return (
+    <div className="border border-red-500/30 rounded-lg p-4 bg-red-500/5">
+      <h2 className="text-sm font-semibold text-red-400 uppercase tracking-wide mb-2">
+        Danger Zone
+      </h2>
+      <p className="text-xs text-gray-400 mb-3 max-w-xl">
+        Wipes every draft pick, roster entry, free agency transaction, and match/game result for
+        every season. Team, Pokémon, conference, and season setup (including conference
+        placement and draft position) are left untouched. This cannot be undone.
+      </p>
+      {!confirming ? (
+        <button
+          onClick={() => setConfirming(true)}
+          className="text-xs font-bold px-3 py-1.5 rounded-md bg-red-600/80 hover:bg-red-600 text-white transition-colors"
+        >
+          Reset Draft / Roster / Match History
+        </button>
+      ) : (
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-xs text-gray-400">
+            Type <span className="font-mono text-red-400">RESET</span> to confirm:
+          </label>
+          <input
+            type="text"
+            value={confirmText}
+            onChange={(e) => setConfirmText(e.target.value)}
+            className="px-2 py-1 bg-[#0d0d1f] border border-red-500/40 rounded text-white text-xs w-28 focus:outline-none focus:ring-1 focus:ring-red-500"
+          />
+          <button
+            onClick={handleReset}
+            disabled={confirmText !== "RESET" || pending}
+            className="text-xs font-bold px-3 py-1.5 rounded-md bg-red-600 hover:bg-red-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {pending ? "Resetting…" : "Confirm Reset"}
+          </button>
+          <button
+            onClick={() => { setConfirming(false); setConfirmText(""); }}
+            disabled={pending}
+            className="text-xs text-gray-400 hover:text-white"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+      {done && <p className="text-emerald-400 text-xs mt-2">Done — history has been wiped.</p>}
+    </div>
+  );
+}
 
 function PickHistoryPanel({
   seasonId,
@@ -149,6 +267,7 @@ function PickHistoryPanel({
 
 export default function RosterManager({
   seasons, teams, teamSeasons, pokemon, roster, conferences, draftStates, draftLog,
+  faTokensUsedByTeamSeason,
 }: Props) {
   const [seasonId, setSeasonId] = useState("");
   const [teamId, setTeamId] = useState("");
@@ -162,6 +281,7 @@ export default function RosterManager({
     (ts) => ts.team_id === Number(teamId) && ts.season_id === Number(seasonId)
   );
   const conferenceId = teamSeason?.conference_id ?? null;
+  const selectedSeason = seasons.find((s) => s.id === Number(seasonId));
 
   const isDraftActive = draftStates.some(
     (d) => d.season_id === Number(seasonId) && d.conference_id === conferenceId && d.is_active
@@ -290,6 +410,17 @@ export default function RosterManager({
             </button>
           </div>
 
+          {/* Free agency tokens */}
+          {selectedSeason && (
+            <FaTokenAdjustmentInput
+              seasonId={Number(seasonId)}
+              teamId={Number(teamId)}
+              baseTokens={selectedSeason.fa_tokens}
+              adjustment={teamSeason?.fa_tokens_adjustment ?? 0}
+              used={faTokensUsedByTeamSeason[`${seasonId}:${teamId}`] ?? 0}
+            />
+          )}
+
           {/* Current roster */}
           <div>
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
@@ -359,6 +490,8 @@ export default function RosterManager({
           </div>
         </>
       )}
+
+      <DangerZone />
     </div>
   );
 }

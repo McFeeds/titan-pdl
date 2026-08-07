@@ -179,10 +179,64 @@ $$;
 
 
 -- ------------------------------------------------------------
+-- AUTO END INELIGIBLE TEAMS
+-- Sweeps every not-yet-ended team in the conference on every draft-state
+-- change and ends anyone out of room or unable to afford anything left in
+-- the pool, regardless of whose turn it technically is. Needed because a
+-- team can become stuck through no pick of their own (another team drafts
+-- away the last pokemon they could afford while it wasn't their turn) --
+-- and since they can't submit a pick either, nothing else would ever
+-- trigger the check for them.
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION auto_end_ineligible_teams(
+  p_season_id     INTEGER,
+  p_conference_id INTEGER,
+  p_max_slots     INTEGER DEFAULT 12
+) RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_point_budget INTEGER;
+BEGIN
+  SELECT point_budget INTO v_point_budget FROM seasons WHERE id = p_season_id;
+
+  UPDATE team_seasons ts
+  SET draft_ended_at = NOW()
+  WHERE ts.season_id = p_season_id
+    AND ts.conference_id = p_conference_id
+    AND ts.draft_ended_at IS NULL
+    AND (
+      (SELECT COUNT(*) FROM rosters r WHERE r.team_id = ts.team_id AND r.season_id = p_season_id) >= p_max_slots
+      OR NOT EXISTS (
+        SELECT 1 FROM pokemon p
+        WHERE p.point_value <= (
+          v_point_budget - COALESCE((
+            SELECT SUM(po.point_value) FROM rosters r JOIN pokemon po ON po.id = r.pokemon_id
+            WHERE r.team_id = ts.team_id AND r.season_id = p_season_id
+          ), 0)
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM rosters r2
+          WHERE r2.pokemon_id = p.id AND r2.conference_id = p_conference_id AND r2.season_id = p_season_id
+        )
+      )
+    );
+
+  PERFORM close_conference_draft_if_all_ended(p_season_id, p_conference_id);
+END;
+$$;
+
+
+-- ------------------------------------------------------------
 -- COMPUTE ON CLOCK TEAM
--- Walks the snake draft round-by-round (odd rounds draft_position 1->N,
--- even rounds N->1), skipping a team's remaining rounds once their draft
--- has ended — their already-made picks still count toward picksSoFar.
+-- Among teams who haven't ended, whoever is furthest behind on their own
+-- picks goes next; ties broken by snake order for that "round" (picksMade+1:
+-- odd -> ascending draft_position, even -> descending). Ignoring ended teams
+-- entirely (rather than replaying rounds and counting slots) makes it
+-- immune to desync from an admin override made out of turn or a team
+-- ending with an irregular pick count -- an earlier round-counting version
+-- could hand the turn back to an already-ended team when history didn't
+-- interleave perfectly.
 -- Mirrors computeOnClockTeamId() in src/lib/draft.ts — keep both in sync.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION compute_on_clock_team(
@@ -193,35 +247,25 @@ CREATE OR REPLACE FUNCTION compute_on_clock_team(
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_picks_so_far INTEGER;
-  v_count        INTEGER := 0;
-  v_round        INTEGER;
-  v_team         RECORD;
+  v_team_id INTEGER;
 BEGIN
-  SELECT COUNT(*) INTO v_picks_so_far FROM draft_log
-    WHERE season_id = p_season_id AND conference_id = p_conference_id;
+  SELECT team_id INTO v_team_id
+  FROM (
+    SELECT ts.team_id, ts.draft_position,
+           (SELECT COUNT(*) FROM draft_log dl
+              WHERE dl.team_id = ts.team_id AND dl.season_id = p_season_id AND dl.conference_id = p_conference_id
+           ) AS picks_made
+    FROM team_seasons ts
+    WHERE ts.season_id = p_season_id AND ts.conference_id = p_conference_id
+      AND ts.draft_position IS NOT NULL AND ts.draft_ended_at IS NULL
+  ) eligible
+  WHERE picks_made < p_max_slots
+  ORDER BY
+    picks_made ASC,
+    CASE WHEN (picks_made + 1) % 2 = 1 THEN draft_position ELSE -draft_position END ASC
+  LIMIT 1;
 
-  FOR v_round IN 1..p_max_slots LOOP
-    FOR v_team IN
-      SELECT ts.team_id, ts.draft_ended_at,
-             (SELECT COUNT(*) FROM draft_log dl
-                WHERE dl.team_id = ts.team_id AND dl.season_id = p_season_id AND dl.conference_id = p_conference_id
-             ) AS picks_made
-      FROM team_seasons ts
-      WHERE ts.season_id = p_season_id AND ts.conference_id = p_conference_id AND ts.draft_position IS NOT NULL
-      ORDER BY CASE WHEN v_round % 2 = 1 THEN ts.draft_position ELSE -ts.draft_position END
-    LOOP
-      IF v_team.draft_ended_at IS NOT NULL AND v_round > v_team.picks_made THEN
-        CONTINUE; -- no slot left for this team
-      END IF;
-      IF v_count = v_picks_so_far THEN
-        RETURN v_team.team_id;
-      END IF;
-      v_count := v_count + 1;
-    END LOOP;
-  END LOOP;
-
-  RETURN NULL; -- draft complete
+  RETURN v_team_id; -- NULL when no eligible team remains (draft complete)
 END;
 $$;
 
@@ -251,14 +295,17 @@ BEGIN
   UPDATE team_seasons SET draft_ended_at = COALESCE(draft_ended_at, NOW())
     WHERE team_id = p_team_id AND season_id = p_season_id;
 
-  PERFORM close_conference_draft_if_all_ended(p_season_id, v_conference_id);
+  PERFORM auto_end_ineligible_teams(p_season_id, v_conference_id);
 END;
 $$;
 
 
 -- ------------------------------------------------------------
 -- REACTIVATE TEAM DRAFT
--- Manual admin undo of an end (voluntary, auto, or forced).
+-- Manual admin undo of an end (voluntary, auto, or forced). Sweeps
+-- afterward too -- if the reactivated team is immediately unable to make a
+-- legal pick, this re-ends them right away instead of leaving the draft
+-- looking "live" for a team that can't actually play.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION reactivate_team_draft(
   p_season_id INTEGER,
@@ -266,9 +313,16 @@ CREATE OR REPLACE FUNCTION reactivate_team_draft(
 ) RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  v_conference_id INTEGER;
 BEGIN
   UPDATE team_seasons SET draft_ended_at = NULL
-    WHERE team_id = p_team_id AND season_id = p_season_id;
+    WHERE team_id = p_team_id AND season_id = p_season_id
+    RETURNING conference_id INTO v_conference_id;
+
+  IF v_conference_id IS NOT NULL THEN
+    PERFORM auto_end_ineligible_teams(p_season_id, v_conference_id);
+  END IF;
 END;
 $$;
 
@@ -316,10 +370,10 @@ $$;
 -- Atomically adds a pokemon to a team's roster and appends the next
 -- sequential pick_number to draft_log. An advisory lock keyed on
 -- (season_id, conference_id) keeps concurrent picks from racing on
--- the pick_number computation. Also auto-ends the team afterward if their
--- roster is now full or they can no longer afford anything undrafted, so
--- compute_on_clock_team() correctly skips them going forward and
--- close_conference_draft_if_all_ended() can actually see the draft finish.
+-- the pick_number computation. Afterward sweeps the whole conference via
+-- auto_end_ineligible_teams() so any team out of room or budget -- not just
+-- the picker -- is skipped going forward and close_conference_draft_if_all_ended()
+-- can actually see the draft finish.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION record_draft_pick(
   p_season_id     INTEGER,
@@ -331,11 +385,7 @@ CREATE OR REPLACE FUNCTION record_draft_pick(
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_pick_number     INTEGER;
-  v_slot_count      INTEGER;
-  v_point_budget    INTEGER;
-  v_spent           INTEGER;
-  v_can_afford_more BOOLEAN;
+  v_pick_number INTEGER;
 BEGIN
   PERFORM pg_advisory_xact_lock(p_season_id, p_conference_id);
 
@@ -349,28 +399,7 @@ BEGIN
   INSERT INTO draft_log (season_id, conference_id, pick_number, team_id, pokemon_id)
   VALUES (p_season_id, p_conference_id, v_pick_number, p_team_id, p_pokemon_id);
 
-  SELECT COUNT(*) INTO v_slot_count FROM rosters
-    WHERE team_id = p_team_id AND season_id = p_season_id;
-
-  SELECT point_budget INTO v_point_budget FROM seasons WHERE id = p_season_id;
-  SELECT COALESCE(SUM(po.point_value), 0) INTO v_spent
-    FROM rosters r JOIN pokemon po ON po.id = r.pokemon_id
-    WHERE r.team_id = p_team_id AND r.season_id = p_season_id;
-
-  SELECT EXISTS (
-    SELECT 1 FROM pokemon p
-    WHERE p.point_value <= (v_point_budget - v_spent)
-      AND NOT EXISTS (
-        SELECT 1 FROM rosters r
-        WHERE r.pokemon_id = p.id AND r.conference_id = p_conference_id AND r.season_id = p_season_id
-      )
-  ) INTO v_can_afford_more;
-
-  IF v_slot_count >= p_max_slots OR NOT v_can_afford_more THEN
-    UPDATE team_seasons SET draft_ended_at = COALESCE(draft_ended_at, NOW())
-      WHERE team_id = p_team_id AND season_id = p_season_id;
-    PERFORM close_conference_draft_if_all_ended(p_season_id, p_conference_id);
-  END IF;
+  PERFORM auto_end_ineligible_teams(p_season_id, p_conference_id, p_max_slots);
 
   RETURN v_pick_number;
 END;
@@ -381,6 +410,8 @@ $$;
 -- SET CONFERENCE DRAFT ACTIVE
 -- Stamps started_at exactly once, atomically, the first time a conference's
 -- draft is activated. Used by the admin panel instead of a raw upsert.
+-- Sweeps once on activation, in case the draft is being (re)started with a
+-- team already unable to make any legal pick.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION set_conference_draft_active(
   p_season_id     INTEGER,
@@ -395,6 +426,10 @@ BEGIN
   ON CONFLICT (season_id, conference_id) DO UPDATE
   SET is_active  = EXCLUDED.is_active,
       started_at = COALESCE(conference_drafts.started_at, EXCLUDED.started_at);
+
+  IF p_is_active THEN
+    PERFORM auto_end_ineligible_teams(p_season_id, p_conference_id);
+  END IF;
 END;
 $$;
 
@@ -406,9 +441,10 @@ $$;
 -- it's this team's turn (compute_on_clock_team — mirrors
 -- computeOnClockTeamId() in src/lib/draft.ts, keep both in sync), pokemon
 -- isn't already drafted, roster has room, and the pick fits the season's
--- point budget. Afterward, auto-ends the team if their roster is now full
--- or they can no longer afford anything undrafted. record_draft_pick gets
--- the same auto-end treatment but skips the turn/ended checks (admin override).
+-- point budget. Afterward sweeps the whole conference via
+-- auto_end_ineligible_teams() so any team out of room or budget -- not just
+-- the picker -- is skipped going forward. record_draft_pick gets the same
+-- treatment but skips the turn/ended checks (admin override).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION submit_draft_pick(
   p_season_id     INTEGER,
@@ -428,8 +464,6 @@ DECLARE
   v_slot_count      INTEGER;
   v_next_pick       INTEGER;
   v_on_clock_team   INTEGER;
-  v_remaining       INTEGER;
-  v_can_afford_more BOOLEAN;
 BEGIN
   PERFORM pg_advisory_xact_lock(p_season_id, p_conference_id);
 
@@ -484,23 +518,7 @@ BEGIN
   INSERT INTO draft_log (season_id, conference_id, pick_number, team_id, pokemon_id)
     VALUES (p_season_id, p_conference_id, v_next_pick, p_team_id, p_pokemon_id);
 
-  -- Auto-end: roster is now full, or nothing left in the pool fits the
-  -- team's remaining budget.
-  v_remaining := v_point_budget - (v_spent + v_point_value);
-  SELECT EXISTS (
-    SELECT 1 FROM pokemon p
-    WHERE p.point_value <= v_remaining
-      AND NOT EXISTS (
-        SELECT 1 FROM rosters r
-        WHERE r.pokemon_id = p.id AND r.conference_id = p_conference_id AND r.season_id = p_season_id
-      )
-  ) INTO v_can_afford_more;
-
-  IF (v_slot_count + 1) >= p_max_slots OR NOT v_can_afford_more THEN
-    UPDATE team_seasons SET draft_ended_at = COALESCE(draft_ended_at, NOW())
-      WHERE team_id = p_team_id AND season_id = p_season_id;
-    PERFORM close_conference_draft_if_all_ended(p_season_id, p_conference_id);
-  END IF;
+  PERFORM auto_end_ineligible_teams(p_season_id, p_conference_id, p_max_slots);
 
   RETURN v_next_pick;
 END;
@@ -510,7 +528,8 @@ $$;
 -- ------------------------------------------------------------
 -- SUBMIT FREE AGENCY MOVE (player-facing add/drop, post-draft)
 -- A team that drops a pokemon can never pick that same pokemon back up for
--- the rest of the season (other teams are unaffected).
+-- the rest of the season (other teams are unaffected). Token limit is the
+-- season default plus that team's fa_tokens_adjustment (admin correction).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION submit_free_agency_move(
   p_season_id     INTEGER,
@@ -538,8 +557,11 @@ BEGIN
   SELECT point_value INTO v_point_value FROM pokemon WHERE id = p_pokemon_id;
   IF v_point_value IS NULL THEN RAISE EXCEPTION 'Pokemon not found'; END IF;
 
-  SELECT point_budget, fa_tokens INTO v_point_budget, v_fa_tokens
-    FROM seasons WHERE id = p_season_id;
+  SELECT s.point_budget, s.fa_tokens + COALESCE(ts.fa_tokens_adjustment, 0)
+    INTO v_point_budget, v_fa_tokens
+    FROM seasons s
+    LEFT JOIN team_seasons ts ON ts.season_id = s.id AND ts.team_id = p_team_id
+    WHERE s.id = p_season_id;
 
   IF p_action = 'add' THEN
     IF EXISTS (
@@ -651,6 +673,9 @@ CREATE TABLE team_seasons (
   -- voluntarily, automatically (out of affordable picks), or by admin
   -- force-end. Drives turn-order skipping and the free-agency gate.
   draft_ended_at TIMESTAMPTZ,
+  -- Admin correction on top of the season's default fa_tokens. Effective
+  -- limit for a team is always seasons.fa_tokens + this value.
+  fa_tokens_adjustment INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (team_id, season_id)
 );
 
@@ -778,6 +803,36 @@ FROM match_game_pokemon mgp
 JOIN match_games mg ON mg.id = mgp.match_game_id
 JOIN matches     m  ON m.id  = mg.match_id
 GROUP BY m.season_id, mgp.team_id, mgp.pokemon_id;
+
+
+-- ------------------------------------------------------------
+-- ADMIN RESET: DRAFT / ROSTER / MATCH HISTORY
+-- "Break in case of glass" -- wipes every table that represents draft,
+-- roster, free-agency, and match HISTORY, while leaving team, pokemon,
+-- conference, group, and season setup (including each team's conference
+-- placement and draft position) untouched. Per-team fa_tokens_adjustment is
+-- reset to 0 along with draft_ended_at, since both are draft-run state, not
+-- season setup. Only ever invoked by an admin from a confirmation-gated UI.
+-- ------------------------------------------------------------
+-- Every DELETE/UPDATE here uses `WHERE true` because Supabase's API-facing
+-- role runs under the safeupdate extension, which rejects any DELETE/UPDATE
+-- lacking a WHERE clause (SQLSTATE 21000) -- it only checks for the
+-- syntactic presence of one, so this satisfies it without changing behavior.
+CREATE OR REPLACE FUNCTION admin_reset_draft_history() RETURNS VOID
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  DELETE FROM match_game_pokemon WHERE true;
+  DELETE FROM match_games WHERE true;
+  DELETE FROM matches WHERE true;
+  DELETE FROM transaction_items WHERE true;
+  DELETE FROM transactions WHERE true;
+  DELETE FROM draft_log WHERE true;
+  DELETE FROM rosters WHERE true;
+  DELETE FROM conference_drafts WHERE true;
+  UPDATE team_seasons SET draft_ended_at = NULL, fa_tokens_adjustment = 0 WHERE true;
+END;
+$$;
 
 
 -- ============================================================

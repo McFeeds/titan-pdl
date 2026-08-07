@@ -1,7 +1,7 @@
 "use client";
 
 import { createClient } from "@/lib/supabase/client";
-import { computeOnClockTeamId, DRAFT_SLOT_COUNT } from "@/lib/draft";
+import { computeOnClockTeamId, DRAFT_SLOT_COUNT, GO_TO_DRAFT_POOL_EVENT } from "@/lib/draft";
 import { getEffectiveness, POKEMON_TYPES, TYPE_COLORS } from "@/lib/pokemon-types";
 import { Conference, PokemonWithMoves } from "@/types/database";
 import { addFreeAgent, submitDraftPick } from "@/lib/roster-actions";
@@ -291,6 +291,17 @@ export default function DraftBoard({
   const defaultConferenceId = userConferenceId ?? conferences[0]?.id ?? null;
   const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(defaultConferenceId);
   const [view, setView] = useState<"pool" | "teams">("pool");
+
+  // DraftTurnAlert's "Go to Draft" link points at this same page, so a plain
+  // navigation is a no-op if we're already here — this event is how it forces
+  // us back to the Pool tab even when we're currently viewing Teams.
+  useEffect(() => {
+    function handleGoToDraftPool() {
+      setView("pool");
+    }
+    window.addEventListener(GO_TO_DRAFT_POOL_EVENT, handleGoToDraftPool);
+    return () => window.removeEventListener(GO_TO_DRAFT_POOL_EVENT, handleGoToDraftPool);
+  }, []);
   const [rawQuery, setRawQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -586,15 +597,14 @@ export default function DraftBoard({
 
   const onClockTeamId = useMemo(() => {
     if (!isDraftActive) return null;
-    const picksSoFar = selectedConferenceId !== null ? pickCountMap[selectedConferenceId] ?? 0 : 0;
     const teamStates = teamsForConference.map((t) => ({
       id: t.id,
       draftPosition: t.draftPosition,
       draftEnded: draftEndedMap[t.id] ?? false,
       picksMade: teamPickCountMap[t.id] ?? 0,
     }));
-    return computeOnClockTeamId(teamStates, picksSoFar);
-  }, [isDraftActive, selectedConferenceId, pickCountMap, teamsForConference, draftEndedMap, teamPickCountMap]);
+    return computeOnClockTeamId(teamStates);
+  }, [isDraftActive, teamsForConference, draftEndedMap, teamPickCountMap]);
 
   // Click-to-draft is only interactive while viewing your own conference —
   // every other case (other conference, logged out) stays view-only.
@@ -700,9 +710,14 @@ export default function DraftBoard({
           </div>
         </div>
 
-        {/* Pinned: view toggle + search (search only shown in Pool view) — stays
-            visible together while scrolling through either view. */}
-        <div className="sticky top-20 z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm flex items-center gap-3">
+        {/* View toggle + search (search only shown in Pool view). Only pinned
+            while on the Pool tab — the Teams tab's grid already fits without
+            scrolling past it, so pinning there just wastes vertical space. */}
+        <div
+          className={`z-20 pb-4 pt-2 -mx-6 px-6 bg-[#0a0a1a]/90 backdrop-blur-sm flex items-center gap-3 ${
+            view === "pool" ? "sticky top-20" : ""
+          }`}
+        >
           <div className="bg-white/5 rounded-2xl p-1.5 flex border border-white/10 shrink-0">
             {(
               [

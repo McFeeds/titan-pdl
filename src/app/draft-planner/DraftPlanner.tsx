@@ -3,7 +3,7 @@
 import { ATTACKING_TYPES, getEffectivenessWithAbilities, typeColor } from "@/lib/pokemon-types";
 import { DRAFT_BUDGET, DRAFT_SLOT_COUNT } from "@/lib/draft";
 import { ImportantMove, PokemonWithMoves } from "@/types/database";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 const SLOT_COUNT = DRAFT_SLOT_COUNT;
 const DEFAULT_BUDGET = DRAFT_BUDGET;
@@ -383,6 +383,87 @@ function MovesView({
   );
 }
 
+// ─── Searchable Pokémon picker ────────────────────────────────────────────────
+
+function PokemonPicker({
+  pokemon, value, usedIds, onSelect,
+}: {
+  pokemon: PokemonWithMoves[];
+  value: PokemonWithMoves | null;
+  usedIds: Set<number>;
+  onSelect: (id: number | null) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false); setQuery("");
+      }
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [open]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return pokemon;
+    return pokemon.filter((p) => p.name.toLowerCase().includes(q));
+  }, [pokemon, query]);
+
+  function pick(p: PokemonWithMoves | null) {
+    onSelect(p ? p.id : null);
+    setQuery("");
+    setOpen(false);
+  }
+
+  return (
+    <div ref={containerRef} className="relative flex-1 min-w-0">
+      <input
+        type="text"
+        value={open ? query : (value?.name ?? "")}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+        onFocus={(e) => { setQuery(""); setOpen(true); e.target.select(); }}
+        placeholder="— Empty —"
+        className="w-full bg-[#12122a] border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500 transition-colors placeholder:text-gray-600"
+      />
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-56 overflow-y-auto bg-[#12122a] border border-white/10 rounded-lg shadow-xl py-1">
+          <div
+            onMouseDown={(e) => { e.preventDefault(); pick(null); }}
+            className="px-2 py-1 text-xs text-gray-500 hover:bg-white/10 cursor-pointer"
+          >
+            — Empty —
+          </div>
+          {filtered.length === 0 && (
+            <div className="px-2 py-1 text-xs text-gray-600 italic">No matches</div>
+          )}
+          {filtered.map((p) => {
+            const disabled = usedIds.has(p.id) && value?.id !== p.id;
+            return (
+              <div key={p.id}
+                onMouseDown={(e) => { if (disabled) return; e.preventDefault(); pick(p); }}
+                className={`px-2 py-1 text-xs ${
+                  disabled
+                    ? "text-gray-700 cursor-not-allowed"
+                    : value?.id === p.id
+                    ? "bg-indigo-500/20 text-indigo-300 cursor-pointer"
+                    : "text-gray-200 hover:bg-white/10 cursor-pointer"
+                }`}
+              >
+                {p.name}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main component ───────────────────────────────────────────────────────────
 
 interface Props { pokemon: PokemonWithMoves[] }
@@ -419,8 +500,8 @@ export default function DraftPlanner({ pokemon }: Props) {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [pokemon]);
 
-  function setSlot(index: number, id: string) {
-    const found = id ? (pokemon.find((p) => p.id === Number(id)) ?? null) : null;
+  function setSlot(index: number, id: number | null) {
+    const found = id ? (pokemon.find((p) => p.id === id) ?? null) : null;
     setSlots((prev) => { const n = [...prev]; n[index] = found; return n; });
     setBrokenArtwork((prev) => { const n = new Set(prev); n.delete(index); return n; });
   }
@@ -516,17 +597,12 @@ export default function DraftPlanner({ pokemon }: Props) {
                     <SpriteOrBall dexNumber={slot.dex_number} name={slot.name} className="w-8 h-8" />
                   )}
                 </div>
-                <select value={slot?.id ?? ""} onChange={(e) => setSlot(i, e.target.value)}
-                  className="flex-1 min-w-0 bg-[#12122a] border border-white/10 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-indigo-500 transition-colors">
-                  <option value="">— Empty —</option>
-                  {sortedPokemon.map((p) => (
-                    <option key={p.id} value={p.id} disabled={usedIds.has(p.id) && slot?.id !== p.id}>{p.name}</option>
-                  ))}
-                </select>
+                <PokemonPicker pokemon={sortedPokemon} value={slot} usedIds={usedIds}
+                  onSelect={(id) => setSlot(i, id)} />
                 <span className="text-xs font-mono w-7 text-right shrink-0 text-gray-300">
                   {slot ? slot.point_value : <span className="text-gray-600">—</span>}
                 </span>
-                <button onClick={() => setSlot(i, "")} title="Clear this slot" disabled={!slot}
+                <button onClick={() => setSlot(i, null)} title="Clear this slot" disabled={!slot}
                   className="w-5 h-5 shrink-0 flex items-center justify-center rounded text-gray-600 hover:text-red-400 hover:bg-white/5 transition-colors disabled:opacity-0 disabled:pointer-events-none">
                   <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />

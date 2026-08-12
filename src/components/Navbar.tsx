@@ -122,7 +122,7 @@ export default function Navbar() {
           alt=""
           width={48}
           height={48}
-          className="rounded-md shrink-0 object-cover"
+          className="w-12 h-12 rounded-md shrink-0 object-cover"
         />
       ) : (
         <div className="w-12 h-12 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center text-base font-bold">

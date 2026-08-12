@@ -98,7 +98,7 @@ export default function PokemonTable({ pokemon }: { pokemon: Pokemon[] }) {
         placeholder="Search Pokémon…"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
-        className="mb-4 w-64 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+        className="mb-4 w-full sm:w-64 px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
       />
       <div className="overflow-x-auto">
         <table className="w-full text-sm">

@@ -502,8 +502,8 @@ export default function DraftPlanner({ pokemon }: Props) {
           </div>
         </div>
 
-        {/* 3-column layout — fills remaining viewport height */}
-        <div className="flex-1 flex gap-4 min-h-0">
+        {/* 3-column layout — fills remaining viewport height; scrolls horizontally below desktop widths */}
+        <div className="flex-1 flex gap-4 min-h-0 overflow-x-auto">
 
           {/* ── Col 1: Selectors ── */}
           <div className="w-80 shrink-0 flex flex-col gap-1.5 overflow-y-auto">
@@ -557,7 +557,7 @@ export default function DraftPlanner({ pokemon }: Props) {
           </div>
 
           {/* ── Col 2: Pokémon grid (fills space) + Type Chart (anchored at bottom) ── */}
-          <div className="flex-1 flex flex-col gap-3 min-h-0">
+          <div className="flex-1 min-w-[420px] flex flex-col gap-3 min-h-0">
 
             {/* Pokémon grid — flex-1, takes all space above the type chart */}
             <div className="flex-1 flex flex-col min-h-0">

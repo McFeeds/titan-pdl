@@ -12,7 +12,7 @@ export default function SeasonsForm({
   const [state, formAction, pending] = useActionState(action, null);
 
   return (
-    <form action={formAction} className="flex items-start gap-3">
+    <form action={formAction} className="flex items-start gap-3 flex-wrap">
       <div className="flex flex-col gap-1">
         <input
           name="name"

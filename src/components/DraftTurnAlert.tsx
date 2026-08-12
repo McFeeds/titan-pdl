@@ -234,12 +234,12 @@ export default function DraftTurnAlert() {
   if (!isMyTurn || dismissed) return null;
 
   return (
-    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] flex items-center gap-3 bg-emerald-600 text-white pl-4 pr-2 py-3 rounded-xl shadow-2xl shadow-emerald-900/50 border border-emerald-400/40">
+    <div className="fixed top-20 left-1/2 -translate-x-1/2 z-[60] flex flex-wrap items-center justify-center gap-x-3 gap-y-2 w-[calc(100%-2rem)] sm:w-auto max-w-md bg-emerald-600 text-white pl-4 pr-2 py-3 rounded-xl shadow-2xl shadow-emerald-900/50 border border-emerald-400/40">
       <span className="relative flex h-2.5 w-2.5 shrink-0">
         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
         <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-white" />
       </span>
-      <span className="text-sm font-bold whitespace-nowrap">It&apos;s your turn to pick!</span>
+      <span className="text-sm font-bold">It&apos;s your turn to pick!</span>
       <Link
         href="/draft-pools"
         onClick={() => window.dispatchEvent(new Event(GO_TO_DRAFT_POOL_EVENT))}
@@ -249,7 +249,7 @@ export default function DraftTurnAlert() {
       </Link>
       <button
         onClick={() => setDismissed(true)}
-        className="text-white/70 hover:text-white text-sm font-bold px-2"
+        className="text-white/70 hover:text-white text-sm font-bold px-2 shrink-0"
         aria-label="Dismiss"
       >
         ✕

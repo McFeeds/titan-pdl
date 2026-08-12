@@ -7,6 +7,10 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html, body {
+  overflow-x: hidden;
+}
+
 body {
   background: #0a0a14;
   color: #f8fafc;

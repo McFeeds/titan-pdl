@@ -26,7 +26,7 @@ export default function SeasonConfigInputs({
   }
 
   return (
-    <div className="flex items-center gap-3">
+    <div className="flex items-center gap-3 flex-wrap">
       <label className="flex items-center gap-1.5 text-xs text-gray-500">
         Budget
         <input

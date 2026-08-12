@@ -931,7 +931,7 @@ function TeamsView({
         </div>
       )}
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {teams.map((team) => {
           const pokemonIds = [...(teamRosterMap[team.id] ?? [])];
           const pokemonList = pokemonIds
@@ -982,7 +982,7 @@ function TeamsView({
                 )}
               </div>
 
-              <div className="grid grid-cols-6 gap-2">
+              <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                 {Array.from({ length: DRAFT_SLOT_COUNT }).map((_, i) => (
                   <DraftSlot
                     key={i}
@@ -1047,7 +1047,8 @@ function DraftSlot({
   return (
     <div className="flex flex-col items-center gap-0.5 min-w-0 w-full">
       <div
-        className="group relative w-full aspect-square rounded-lg overflow-hidden bg-white/5 border-t-2 border border-white/10"
+        tabIndex={0}
+        className="group relative w-full aspect-square rounded-lg overflow-hidden bg-white/5 border-t-2 border border-white/10 outline-none"
         style={{ borderTopColor: primaryColor }}
       >
         {pokemon.dex_number ? (
@@ -1072,7 +1073,7 @@ function DraftSlot({
         </span>
 
         {/* Hover tooltip */}
-        <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-lg px-2 py-1 opacity-0 group-hover:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl whitespace-nowrap">
+        <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-lg px-2 py-1 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl whitespace-nowrap">
           <p className="font-semibold text-white text-xs">{pokemon.name}</p>
         </div>
       </div>
@@ -1102,8 +1103,9 @@ function PokemonCard({
     <div className="group relative flex flex-col items-center">
       {/* Card */}
       <div
+        tabIndex={0}
         onClick={isInteractive ? onClick : undefined}
-        className={`relative w-[72px] rounded-lg overflow-hidden border-t-2 border border-white/10 transition-all duration-200 ${
+        className={`relative w-[72px] rounded-lg overflow-hidden border-t-2 border border-white/10 outline-none transition-all duration-200 ${
           isDrafted
             ? "opacity-25 grayscale"
             : isInteractive
@@ -1142,7 +1144,7 @@ function PokemonCard({
 
       {/* Hover tooltip */}
       {!isDrafted && (
-        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-xl px-3 py-2.5 opacity-0 group-hover:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl min-w-[160px]">
+        <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-[#12122a] border border-white/15 rounded-xl px-3 py-2.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none z-30 transition-opacity shadow-2xl min-w-[160px]">
           <p className="font-semibold text-white text-sm">{pokemon.name}</p>
 
           {/* Types */}

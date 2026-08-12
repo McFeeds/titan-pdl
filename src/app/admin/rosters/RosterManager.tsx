@@ -80,7 +80,7 @@ function FaTokenAdjustmentInput({
   }
 
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-fit">
+    <div className="flex items-center gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-fit flex-wrap">
       <span className="text-white text-sm font-medium">FA Tokens:</span>
       <span className="text-xs text-gray-400">
         {baseTokens} base
@@ -355,7 +355,7 @@ export default function RosterManager({
               return (
                 <div
                   key={conf.id}
-                  className="flex flex-col gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-72"
+                  className="flex flex-col gap-2 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-full sm:w-72"
                 >
                   <div className="flex items-center gap-3">
                     <span className="text-white text-sm font-medium">{conf.name}</span>
@@ -390,7 +390,7 @@ export default function RosterManager({
       {seasonId && teamId && (
         <>
           {/* Team draft status */}
-          <div className="flex items-center gap-3 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-fit">
+          <div className="flex items-center gap-3 px-3 py-2 bg-white/5 border border-white/10 rounded-lg w-fit flex-wrap">
             <span className="text-white text-sm font-medium">
               {teams.find((t) => t.id === Number(teamId))?.team_name ?? "Team"} draft:
             </span>
@@ -459,7 +459,7 @@ export default function RosterManager({
                 </span>
               )}
             </h2>
-            <form action={formAction} className="flex items-start gap-3">
+            <form action={formAction} className="flex items-start gap-3 flex-wrap">
               <input type="hidden" name="season_id" value={seasonId} />
               <input type="hidden" name="team_id" value={teamId} />
               <input type="hidden" name="conference_id" value={conferenceId ?? ""} />

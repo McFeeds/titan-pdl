@@ -253,8 +253,8 @@ function ScheduleTable({
   }
 
   return (
-    <div className="rounded-xl border border-white/10 overflow-hidden flex-1">
-      <table className="w-full text-sm border-collapse">
+    <div className="rounded-xl border border-white/10 overflow-x-auto flex-1">
+      <table className="w-full min-w-[380px] text-sm border-collapse">
         <thead>
           <tr className="border-b border-white/10 bg-white/[0.03]">
             <th className="px-4 py-2.5 text-left text-[10px] text-gray-500 font-bold uppercase tracking-wider w-16">Wk</th>
@@ -375,8 +375,8 @@ function PokemonStatsTable({
     }`;
 
   return (
-    <div className="rounded-xl border border-white/10 overflow-hidden">
-      <table className="w-full text-sm border-collapse">
+    <div className="rounded-xl border border-white/10 overflow-x-auto">
+      <table className="w-full min-w-[480px] text-sm border-collapse">
         <thead>
           <tr className="border-b border-white/10 bg-white/[0.03]">
             <th className="px-3 py-2.5 text-left text-[10px] text-gray-500 font-bold uppercase tracking-wider">
@@ -762,7 +762,7 @@ export default function MyTeamView({
         {roster.length === 0 ? (
           <p className="text-sm text-gray-600 italic">No pokemon on roster.</p>
         ) : (
-          <div className="grid grid-cols-6 gap-3">
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
             {roster.map((p) => (
               <PokemonCard
                 key={p.id}
@@ -777,7 +777,7 @@ export default function MyTeamView({
       </section>
 
       {/* Schedule + Stats tables */}
-      <div className="flex gap-6">
+      <div className="flex flex-col lg:flex-row gap-6">
         {/* Schedule */}
         <div className="flex-1 min-w-0 flex flex-col">
           <SectionHeading label="Schedule" />

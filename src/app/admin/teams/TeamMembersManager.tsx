@@ -54,11 +54,11 @@ function MemberRow({ member, teamId }: { member: Member; teamId: number }) {
   }
 
   return (
-    <li className="flex items-center gap-3 px-3 py-2 bg-white/5 rounded-lg">
+    <li className="flex items-center gap-3 px-3 py-2 bg-white/5 rounded-lg flex-wrap">
       <span className="text-white text-sm w-36 shrink-0">{member.discord_id}</span>
 
       {editing ? (
-        <div className="flex items-center gap-2 flex-1">
+        <div className="flex items-center gap-2 flex-1 flex-wrap min-w-0">
           <input
             value={showdownValue}
             onChange={(e) => setShowdownValue(e.target.value)}

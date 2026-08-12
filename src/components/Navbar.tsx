@@ -36,6 +36,11 @@ export default function Navbar() {
   const [team, setTeam] = useState<Team | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  useEffect(() => {
+    setMenuOpen(false);
+  }, [pathname]);
 
   useEffect(() => {
     const supabase = createClient();
@@ -104,9 +109,41 @@ export default function Navbar() {
     });
   }
 
+  const authControl = loading ? (
+    <div className="w-36 h-9 rounded-lg bg-white/5 animate-pulse" />
+  ) : team ? (
+    <Link
+      href="/my-team"
+      className="flex items-center gap-2 bg-white/10 hover:bg-white/15 active:bg-white/20 text-white text-sm font-semibold pl-1 pr-3 py-1 rounded-lg transition-colors max-w-[220px] lg:max-w-[180px]"
+    >
+      {team.logo_url ? (
+        <Image
+          src={team.logo_url}
+          alt=""
+          width={48}
+          height={48}
+          className="w-12 h-12 rounded-md shrink-0 object-cover"
+        />
+      ) : (
+        <div className="w-12 h-12 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center text-base font-bold">
+          {team.team_name[0].toUpperCase()}
+        </div>
+      )}
+      <span className="truncate">{team.team_name}</span>
+    </Link>
+  ) : (
+    <button
+      onClick={handleLogin}
+      className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+    >
+      {DISCORD_SVG}
+      Login with Discord
+    </button>
+  );
+
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-[#0d0d1f]/90 backdrop-blur-md border-b border-white/10">
-      <div className="max-w-7xl mx-auto px-6 flex items-center h-16 gap-1">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center h-16 gap-1">
         <Link
           href="/"
           className="text-white font-bold text-lg mr-6 tracking-wide shrink-0"
@@ -114,7 +151,7 @@ export default function Navbar() {
           Titan PDL
         </Link>
 
-        <div className="flex items-center gap-1 flex-1">
+        <div className="hidden lg:flex items-center gap-1 flex-1">
           {navLinks.map((link) => {
             const isActive = pathname === link.href;
             return (
@@ -133,7 +170,7 @@ export default function Navbar() {
           })}
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="hidden lg:flex items-center gap-2 shrink-0 ml-auto">
           {isAdmin && (
             <Link
               href="/admin"
@@ -147,39 +184,72 @@ export default function Navbar() {
             </Link>
           )}
 
-          {loading ? (
-            <div className="w-36 h-9 rounded-lg bg-white/5 animate-pulse" />
-          ) : team ? (
-            <Link
-              href="/my-team"
-              className="flex items-center gap-2 bg-white/10 hover:bg-white/15 active:bg-white/20 text-white text-sm font-semibold pl-1 pr-3 py-1 rounded-lg transition-colors max-w-[180px]"
-            >
-              {team.logo_url ? (
-                <Image
-                  src={team.logo_url}
-                  alt=""
-                  width={48}
-                  height={48}
-                  className="rounded-md shrink-0 object-cover"
-                />
-              ) : (
-                <div className="w-12 h-12 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center text-base font-bold">
-                  {team.team_name[0].toUpperCase()}
-                </div>
-              )}
-              <span className="truncate">{team.team_name}</span>
-            </Link>
-          ) : (
-            <button
-              onClick={handleLogin}
-              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            >
-              {DISCORD_SVG}
-              Login with Discord
-            </button>
-          )}
+          {authControl}
         </div>
+
+        <button
+          type="button"
+          onClick={() => setMenuOpen((open) => !open)}
+          aria-label={menuOpen ? "Close menu" : "Open menu"}
+          aria-expanded={menuOpen}
+          className="lg:hidden ml-auto flex items-center justify-center w-10 h-10 rounded-md text-gray-300 hover:text-white hover:bg-white/5 transition-colors shrink-0"
+        >
+          {menuOpen ? (
+            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" className="w-6 h-6" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          )}
+        </button>
       </div>
+
+      {menuOpen && (
+        <div
+          className="lg:hidden fixed inset-0 top-16 z-[70] bg-black/70 backdrop-blur-sm"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setMenuOpen(false);
+          }}
+        >
+          <div className="bg-[#0f0f23] border-t border-white/10 max-h-[calc(100vh-4rem)] overflow-y-auto">
+            <div className="flex flex-col p-3 gap-1">
+              {navLinks.map((link) => {
+                const isActive = pathname === link.href;
+                return (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className={`px-4 py-3 rounded-md text-base font-medium transition-colors ${
+                      isActive
+                        ? "text-white bg-white/10"
+                        : "text-gray-300 hover:text-white hover:bg-white/5"
+                    }`}
+                  >
+                    {link.label}
+                  </Link>
+                );
+              })}
+
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  className={`px-4 py-3 rounded-md text-base font-medium transition-colors ${
+                    pathname.startsWith("/admin")
+                      ? "text-white bg-white/10"
+                      : "text-gray-300 hover:text-white hover:bg-white/5"
+                  }`}
+                >
+                  Admin
+                </Link>
+              )}
+
+              <div className="mt-2 pt-3 border-t border-white/10">{authControl}</div>
+            </div>
+          </div>
+        </div>
+      )}
     </nav>
   );
 }

@@ -724,3 +724,27 @@ Ogerpon		14
 Aromatisse		5
 Basculegion-Female		11
 Ting-Lu		18
+Turtwig	1
+Eevee	1
+Mareep	1
+Larvesta	1
+Wooper	1
+Vulpix-Alola	2
+Scrafty	10
+Shedinja	6
+Beedrill	2
+Cleffa	2
+Farfetchd	2
+Farfetchd-Galar	3
+Floette	9
+Golbat	4
+Mime Jr.	2
+Pidgeot	2
+Qwilfish-Hisui	9
+Simisage	3
+Watchog	2
+Trubbish	1
+Staryu	1
+Larvesta	1
+Pineco	1
+Ralts	1

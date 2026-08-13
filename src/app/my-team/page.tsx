@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { computeOnClockTeamId } from "@/lib/draft";
+import { getMatchComponents, recordFromComponents } from "@/lib/matchRecord";
 import type { RosterPokemon } from "@/types/database";
 import MyTeamView, { type DraftMode } from "./MyTeamView";
 
@@ -38,7 +39,7 @@ export default async function MyTeamPage() {
   // Active season
   const { data: activeSeason } = await supabase
     .from("seasons")
-    .select("id, name, point_budget, fa_tokens")
+    .select("id, name, point_budget, fa_tokens, match_format")
     .eq("is_active", true)
     .limit(1)
     .maybeSingle();
@@ -85,7 +86,7 @@ export default async function MyTeamPage() {
 
     supabase
       .from("matches")
-      .select("id, week_number, home_team_id, away_team_id, played_at, match_games(id, game_number, winner_team_id)")
+      .select("id, week_number, home_team_id, away_team_id, played_at, match_games(id, game_number, game_type, winner_team_id)")
       .eq("season_id", activeSeason.id)
       .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
       .order("week_number"),
@@ -179,15 +180,32 @@ export default async function MyTeamPage() {
     0
   );
 
-  // Build schedule entries
+  // Build schedule entries — win/loss per matchup is format-aware (see
+  // src/lib/matchRecord.ts): a 'bo3' matchup is one series decided at 2
+  // games, a 'singles_doubles' matchup is a singles + a doubles component
+  // each contributing its own win/loss.
+  const matchFormat = activeSeason.match_format;
   const schedule = (rawMatches ?? []).map((m: any) => {
     const isHome = m.home_team_id === teamId;
     const opponentId: number = isHome ? m.away_team_id : m.home_team_id;
     const games: any[] = m.match_games ?? [];
-    const myGamesWon = games.filter((g) => g.winner_team_id === teamId).length;
-    const oppGamesWon = games.filter(
-      (g) => g.winner_team_id !== null && g.winner_team_id !== teamId
-    ).length;
+
+    const components = getMatchComponents(games, matchFormat, m.home_team_id);
+    const { homeWins, homeLosses, awayWins, awayLosses } = recordFromComponents(components);
+    const myWins = isHome ? homeWins : awayWins;
+    const oppWins = isHome ? awayWins : homeWins;
+    const myLosses = isHome ? homeLosses : awayLosses;
+    const oppLosses = isHome ? awayLosses : homeLosses;
+    const decided = components.every((c) => c.decided);
+
+    // Per-component breakdown for the "singles_doubles" tooltip — from this
+    // team's perspective, e.g. "Singles: W", "Doubles: —" (not decided yet).
+    const componentBreakdown: { label: string; result: "W" | "L" | "—" }[] = components.map((c) => {
+      const label = c.type === "singles" ? "Singles" : c.type === "doubles" ? "Doubles" : "Series";
+      const result: "W" | "L" | "—" = !c.decided ? "—" : (c.winner === "home") === isHome ? "W" : "L";
+      return { label, result };
+    });
+
     return {
       id: m.id as number,
       week_number: m.week_number as number,
@@ -198,9 +216,13 @@ export default async function MyTeamPage() {
         team_name: "TBD",
         logo_url: null,
       },
-      my_games_won: myGamesWon,
-      opp_games_won: oppGamesWon,
-      total_games: games.length,
+      my_games_won: myWins,
+      opp_games_won: oppWins,
+      my_losses: myLosses,
+      opp_losses: oppLosses,
+      decided,
+      has_games: games.length > 0,
+      component_breakdown: componentBreakdown,
     };
   });
 
@@ -270,9 +292,10 @@ export default async function MyTeamPage() {
       schedule={schedule}
       pokemonStats={pokemonStats ?? []}
       totalGamesPlayed={totalGamesPlayed}
+      matchFormat={matchFormat}
       record={{
-          wins: schedule.filter((e) => e.my_games_won >= 2).length,
-          losses: schedule.filter((e) => e.opp_games_won >= 2).length,
+          wins: schedule.reduce((sum, e) => sum + e.my_games_won, 0),
+          losses: schedule.reduce((sum, e) => sum + e.opp_games_won, 0),
         }}
       draftMode={draftMode}
       isOnClock={isOnClock}

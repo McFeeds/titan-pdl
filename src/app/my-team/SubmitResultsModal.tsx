@@ -3,12 +3,45 @@
 import { useState } from "react";
 import { analyzeMatchResults, submitMatchResults } from "./actions";
 import type { MatchAnalysis, GameAnalysis } from "./actions";
+import type { MatchFormat, GameType } from "@/types/database";
 
 interface Props {
   matchId: number;
   weekNumber: number;
   opponentName: string;
+  matchFormat: MatchFormat;
   onClose: () => void;
+}
+
+// One replay-URL input slot: which game it fills in, labeled for display.
+interface Slot {
+  gameType: GameType;
+  gameNumber: number;
+  label: string;
+  required: boolean;
+}
+
+function slotsForFormat(format: MatchFormat): Slot[] {
+  if (format === "singles_doubles") {
+    return [
+      { gameType: "singles", gameNumber: 1, label: "Singles Replay (Bo1)", required: true },
+      { gameType: "doubles", gameNumber: 1, label: "Doubles Game 1 Replay", required: true },
+      { gameType: "doubles", gameNumber: 2, label: "Doubles Game 2 Replay", required: true },
+      { gameType: "doubles", gameNumber: 3, label: "Doubles Game 3 Replay (if played)", required: false },
+    ];
+  }
+  return [
+    { gameType: "doubles", gameNumber: 1, label: "Game 1 Replay", required: true },
+    { gameType: "doubles", gameNumber: 2, label: "Game 2 Replay", required: true },
+    { gameType: "doubles", gameNumber: 3, label: "Game 3 Replay (if played)", required: false },
+  ];
+}
+
+// Minimum filled-in replays needed before results can be analyzed: for
+// singles_doubles that's the singles game plus at least 2 of 3 doubles
+// games (same "at least 2 of 3" rule bo3 has always used).
+function minRequired(format: MatchFormat): number {
+  return format === "singles_doubles" ? 3 : 2;
 }
 
 type Phase = "form" | "analyzing" | "confirming" | "submitting" | "success";
@@ -37,11 +70,16 @@ function TeamBlock({ team }: { team: GameAnalysis["teams"][number] }) {
   );
 }
 
-function GameSummary({ game }: { game: GameAnalysis }) {
+function GameSummary({ game, showType }: { game: GameAnalysis; showType: boolean }) {
+  const label = !showType
+    ? `Game ${game.gameNumber}`
+    : game.gameType === "singles"
+    ? "Singles"
+    : `Doubles Game ${game.gameNumber}`;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">Game {game.gameNumber}</span>
+        <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider">{label}</span>
         {game.winnerTeamName && (
           <>
             <span className="text-gray-700 text-[10px]">·</span>
@@ -58,9 +96,12 @@ function GameSummary({ game }: { game: GameAnalysis }) {
 
 // ---------- Main modal ----------
 
-export default function SubmitResultsModal({ matchId, weekNumber, opponentName, onClose }: Props) {
+export default function SubmitResultsModal({ matchId, weekNumber, opponentName, matchFormat, onClose }: Props) {
+  const slots = slotsForFormat(matchFormat);
+  const required = minRequired(matchFormat);
+
   const [phase, setPhase] = useState<Phase>("form");
-  const [urls, setUrls] = useState(["", "", ""]);
+  const [urls, setUrls] = useState<string[]>(slots.map(() => ""));
   const [analysis, setAnalysis] = useState<MatchAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,15 +109,19 @@ export default function SubmitResultsModal({ matchId, weekNumber, opponentName, 
     setUrls((prev) => prev.map((u, idx) => (idx === i ? val : u)));
   }
 
+  function buildGames() {
+    return urls
+      .map((url, i) => ({ gameType: slots[i].gameType, gameNumber: slots[i].gameNumber, replayUrl: url.trim() }))
+      .filter((g) => g.replayUrl !== "");
+  }
+
   async function handleAnalyze() {
     setError(null);
 
-    const games = urls
-      .map((url, i) => ({ gameNumber: i + 1, replayUrl: url.trim() }))
-      .filter((g) => g.replayUrl !== "");
+    const games = buildGames();
 
-    if (games.length < 2) {
-      setError("Please provide replay links for at least 2 games.");
+    if (games.length < required) {
+      setError(`Please provide replay links for at least ${required} games.`);
       return;
     }
 
@@ -96,9 +141,7 @@ export default function SubmitResultsModal({ matchId, weekNumber, opponentName, 
     setError(null);
     setPhase("submitting");
 
-    const games = urls
-      .map((url, i) => ({ gameNumber: i + 1, replayUrl: url.trim() }))
-      .filter((g) => g.replayUrl !== "");
+    const games = buildGames();
 
     const result = await submitMatchResults(matchId, games);
 
@@ -159,17 +202,17 @@ export default function SubmitResultsModal({ matchId, weekNumber, opponentName, 
               <p className="text-xs text-gray-500 leading-relaxed">
                 Paste the Pokémon Showdown replay links below. Stats will be parsed automatically — you&apos;ll review them before anything is saved.
               </p>
-              {[0, 1, 2].map((i) => (
-                <div key={i}>
+              {slots.map((slot, i) => (
+                <div key={`${slot.gameType}-${slot.gameNumber}`}>
                   <label className="block text-[11px] font-semibold text-gray-400 mb-1.5 uppercase tracking-wider">
-                    Game {i + 1} Replay{i === 2 ? " (if played)" : ""}
+                    {slot.label}
                   </label>
                   <input
                     type="url"
                     value={urls[i]}
                     onChange={(e) => setUrl(i, e.target.value)}
                     placeholder="https://replay.pokemonshowdown.com/…"
-                    required={i < 2}
+                    required={slot.required}
                     disabled={phase === "analyzing"}
                     className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder:text-gray-700 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition disabled:opacity-50"
                   />
@@ -185,7 +228,11 @@ export default function SubmitResultsModal({ matchId, weekNumber, opponentName, 
                 Review the parsed results below. If everything looks correct, click <span className="text-white font-semibold">Confirm & Submit</span> to save.
               </p>
               {analysis.games.map((game) => (
-                <GameSummary key={game.gameNumber} game={game} />
+                <GameSummary
+                  key={`${game.gameType}-${game.gameNumber}`}
+                  game={game}
+                  showType={matchFormat === "singles_doubles"}
+                />
               ))}
             </div>
           )}

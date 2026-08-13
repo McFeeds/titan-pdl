@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { getMatchComponents, recordFromComponents } from "@/lib/matchRecord";
 import SchedulesView from "./SchedulesView";
 import type { MatchupEntry, PokemonBasic, ReplayLink } from "./types";
 
@@ -13,7 +14,7 @@ export default async function SchedulesPage() {
     { data: authData },
   ] = await Promise.all([
     supabase.from("conferences").select("id, name").order("name"),
-    supabase.from("seasons").select("id, name").eq("is_active", true).limit(1).maybeSingle(),
+    supabase.from("seasons").select("id, name, match_format").eq("is_active", true).limit(1).maybeSingle(),
     supabase.auth.getUser(),
   ]);
 
@@ -61,7 +62,7 @@ export default async function SchedulesPage() {
       .select(`
         id, week_number, home_team_id, away_team_id, played_at,
         match_games(
-          id, game_number, winner_team_id, replay_url,
+          id, game_number, game_type, winner_team_id, replay_url,
           match_game_pokemon(team_id, pokemon_id, pokemon(id, dex_number, name))
         )
       `)
@@ -95,27 +96,25 @@ export default async function SchedulesPage() {
     rosterMap.get(r.team_id)!.push(r.pokemon as PokemonBasic);
   }
 
-  // Compute season W/L records from all completed matches
+  const matchFormat = activeSeason.match_format;
+
+  // Compute season W/L records from all completed matches (format-aware —
+  // see src/lib/matchRecord.ts).
   const teamRecords: Record<number, { wins: number; losses: number }> = {};
   function ensureRecord(id: number) {
     if (!teamRecords[id]) teamRecords[id] = { wins: 0, losses: 0 };
   }
   for (const m of (rawMatches ?? []) as any[]) {
     const games: any[] = m.match_games ?? [];
-    const homeWins = games.filter((g) => g.winner_team_id === m.home_team_id).length;
-    const awayWins = games.filter(
-      (g) => g.winner_team_id !== null && g.winner_team_id !== m.home_team_id
-    ).length;
-    if (homeWins >= 2 || awayWins >= 2) {
+    const components = getMatchComponents(games, matchFormat, m.home_team_id);
+    const { homeWins, homeLosses, awayWins, awayLosses } = recordFromComponents(components);
+    if (homeWins || homeLosses || awayWins || awayLosses) {
       ensureRecord(m.home_team_id);
       ensureRecord(m.away_team_id);
-      if (homeWins >= 2) {
-        teamRecords[m.home_team_id].wins++;
-        teamRecords[m.away_team_id].losses++;
-      } else {
-        teamRecords[m.away_team_id].wins++;
-        teamRecords[m.home_team_id].losses++;
-      }
+      teamRecords[m.home_team_id].wins += homeWins;
+      teamRecords[m.home_team_id].losses += homeLosses;
+      teamRecords[m.away_team_id].wins += awayWins;
+      teamRecords[m.away_team_id].losses += awayLosses;
     }
   }
 
@@ -136,11 +135,24 @@ export default async function SchedulesPage() {
 
   const matchups: MatchupEntry[] = ((rawMatches ?? []) as any[]).map((m) => {
     const games: any[] = m.match_games ?? [];
-    const homeWins = games.filter((g) => g.winner_team_id === m.home_team_id).length;
-    const awayWins = games.filter(
-      (g) => g.winner_team_id !== null && g.winner_team_id !== m.home_team_id
-    ).length;
+    const components = getMatchComponents(games, matchFormat, m.home_team_id);
+    const decided = components.every((c) => c.decided);
     const hasGames = games.length > 0;
+
+    // bo3: the score shown is the raw doubles-series game tally (e.g. 2-1).
+    // singles_doubles: the score shown is the combined win-unit count (0-2) —
+    // singles win + doubles win are each worth one point, per the chosen
+    // "combined score" display.
+    let homeScore: number;
+    let awayScore: number;
+    if (matchFormat === "bo3") {
+      homeScore = components[0].gamesWon.home;
+      awayScore = components[0].gamesWon.away;
+    } else {
+      const rec = recordFromComponents(components);
+      homeScore = rec.homeWins;
+      awayScore = rec.awayWins;
+    }
 
     const baseHome = teamMap.get(m.home_team_id) ?? { id: m.home_team_id, team_name: "TBD", logo_url: null };
     const baseAway = teamMap.get(m.away_team_id) ?? { id: m.away_team_id, team_name: "TBD", logo_url: null };
@@ -150,7 +162,17 @@ export default async function SchedulesPage() {
     const replayLinks: ReplayLink[] = games
       .filter((g) => g.replay_url)
       .sort((a, b) => a.game_number - b.game_number)
-      .map((g) => ({ game_number: g.game_number as number, url: g.replay_url as string }));
+      .map((g) => ({ game_type: g.game_type as "singles" | "doubles", game_number: g.game_number as number, url: g.replay_url as string }));
+
+    // Singles/doubles breakdown for the "View Match" panel.
+    const componentBreakdown = matchFormat === "singles_doubles"
+      ? components.map((c) => ({
+          label: c.type === "singles" ? "Singles" : "Doubles",
+          winnerTeamName: c.decided
+            ? (c.winner === "home" ? baseHome.team_name : baseAway.team_name)
+            : null,
+        }))
+      : [];
 
     // Show brought pokemon for played matches, drafted roster for upcoming
     const homePokemon = hasGames
@@ -164,13 +186,16 @@ export default async function SchedulesPage() {
       id: m.id as number,
       week_number: m.week_number as number,
       conference_id: (teamConfMap.get(m.home_team_id) ?? null) as number | null,
+      match_format: matchFormat,
       home_team: { ...baseHome, wins: homeRecord.wins, losses: homeRecord.losses },
       away_team: { ...baseAway, wins: awayRecord.wins, losses: awayRecord.losses },
-      home_games_won: homeWins,
-      away_games_won: awayWins,
+      home_games_won: homeScore,
+      away_games_won: awayScore,
+      decided,
       total_games: games.length,
       played_at: m.played_at as string | null,
       replay_links: replayLinks,
+      component_breakdown: componentBreakdown,
       home_pokemon: homePokemon,
       away_pokemon: awayPokemon,
     };

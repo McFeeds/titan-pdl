@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { typeColor } from "@/lib/pokemon-types";
 import { DRAFT_SLOT_COUNT } from "@/lib/draft";
-import type { Pokemon, RosterPokemon } from "@/types/database";
+import type { Pokemon, RosterPokemon, MatchFormat } from "@/types/database";
 import { updateRosterNickname } from "./actions";
 import { addFreeAgent, dropFreeAgent, endMyDraft, submitDraftPick } from "@/lib/roster-actions";
 import DraftPickModal from "@/components/DraftPickModal";
@@ -30,7 +30,9 @@ interface ScheduleEntry {
   opponent: { id: number; team_name: string; logo_url: string | null };
   my_games_won: number;
   opp_games_won: number;
-  total_games: number;
+  decided: boolean;
+  has_games: boolean;
+  component_breakdown: { label: string; result: "W" | "L" | "—" }[];
 }
 
 interface UndraftedPokemon {
@@ -50,6 +52,7 @@ interface Props {
   schedule: ScheduleEntry[];
   pokemonStats: PokemonStat[];
   totalGamesPlayed: number;
+  matchFormat: MatchFormat;
   record: { wins: number; losses: number };
   draftMode: DraftMode;
   isOnClock: boolean;
@@ -264,10 +267,14 @@ function ScheduleTable({
         </thead>
         <tbody>
           {schedule.map((entry, i) => {
-            const played = entry.my_games_won >= 2 || entry.opp_games_won >= 2;
-            const inProgress = !played && entry.total_games > 0;
-            const myWin = entry.my_games_won >= 2;
+            const played = entry.decided;
+            const inProgress = !played && entry.has_games;
+            const myWin = entry.my_games_won > entry.opp_games_won;
+            const tie = played && entry.my_games_won === entry.opp_games_won;
             const noResults = !played && !inProgress;
+            const tooltip = entry.component_breakdown.length > 1
+              ? entry.component_breakdown.map((c) => `${c.label}: ${c.result}`).join(" · ")
+              : undefined;
 
             return (
               <tr
@@ -299,14 +306,14 @@ function ScheduleTable({
                 </td>
 
                 {/* Result */}
-                <td className="px-4 py-2.5 text-center">
+                <td className="px-4 py-2.5 text-center" title={tooltip}>
                   {played ? (
                     <span
                       className={`text-xs font-bold font-mono ${
-                        myWin ? "text-emerald-400" : "text-red-400"
+                        tie ? "text-gray-400" : myWin ? "text-emerald-400" : "text-red-400"
                       }`}
                     >
-                      {myWin ? "W" : "L"}{" "}
+                      {tie ? "T" : myWin ? "W" : "L"}{" "}
                       <span className="text-gray-400 font-normal">
                         {entry.my_games_won}–{entry.opp_games_won}
                       </span>
@@ -653,6 +660,7 @@ export default function MyTeamView({
   schedule,
   pokemonStats,
   totalGamesPlayed,
+  matchFormat,
   record,
   draftMode,
   isOnClock,
@@ -804,6 +812,7 @@ export default function MyTeamView({
           matchId={submitMatch.id}
           weekNumber={submitMatch.week_number}
           opponentName={submitMatch.opponent.team_name}
+          matchFormat={matchFormat}
           onClose={() => {
             setSubmitMatchId(null);
             router.refresh();

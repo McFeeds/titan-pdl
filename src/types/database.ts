@@ -2,12 +2,15 @@
 // Row types — one interface per table, matching column names exactly.
 // ============================================================
 
+export type MatchFormat = "bo3" | "singles_doubles";
+
 export interface Season {
   id: number;
   name: string;
   is_active: boolean;
   point_budget: number;
   fa_tokens: number;
+  match_format: MatchFormat;
   created_at: string;
 }
 
@@ -87,10 +90,13 @@ export interface Match {
   played_at: string | null;
 }
 
+export type GameType = "singles" | "doubles";
+
 export interface MatchGame {
   id: number;
   match_id: number;
   game_number: number;
+  game_type: GameType;
   winner_team_id: number | null;
   replay_url: string | null;
 }

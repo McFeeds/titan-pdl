@@ -46,6 +46,7 @@ export async function upsertMatchGame(_prevState: State, formData: FormData): Pr
 
   const match_id = Number(formData.get("match_id"));
   const game_number = Number(formData.get("game_number"));
+  const game_type = ((formData.get("game_type") as string) || "doubles") as "singles" | "doubles";
   const winner_team_id = formData.get("winner_team_id") ? Number(formData.get("winner_team_id")) : null;
   const replay_url = (formData.get("replay_url") as string)?.trim() || null;
 
@@ -54,7 +55,7 @@ export async function upsertMatchGame(_prevState: State, formData: FormData): Pr
   const admin = createAdminClient();
   const { error } = await admin
     .from("match_games")
-    .upsert({ match_id, game_number, winner_team_id, replay_url }, { onConflict: "match_id,game_number" });
+    .upsert({ match_id, game_number, game_type, winner_team_id, replay_url }, { onConflict: "match_id,game_type,game_number" });
 
   if (error) return { error: error.message };
 

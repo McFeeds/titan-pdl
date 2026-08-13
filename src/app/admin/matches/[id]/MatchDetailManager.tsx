@@ -7,6 +7,7 @@ import {
   removeMatchGamePokemon,
   clearMatchResults,
 } from "../actions";
+import type { GameType, MatchFormat } from "@/types/database";
 
 const selectCls =
   "px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
@@ -26,6 +27,7 @@ type MatchGamePokemon = {
 type MatchGame = {
   id: number;
   game_number: number;
+  game_type: GameType;
   winner_team_id: number | null;
   replay_url: string | null;
   match_game_pokemon: MatchGamePokemon[];
@@ -37,18 +39,36 @@ type Props = {
   awayTeam: Team;
   games: MatchGame[];
   allPokemon: Pokemon[];
+  matchFormat: MatchFormat;
 };
+
+// bo3: 3 doubles games. singles_doubles: 1 singles game + 3 doubles games.
+function slotsForFormat(format: MatchFormat): { gameType: GameType; gameNumber: number; heading: string }[] {
+  if (format === "singles_doubles") {
+    return [
+      { gameType: "singles", gameNumber: 1, heading: "Singles (Bo1)" },
+      { gameType: "doubles", gameNumber: 1, heading: "Doubles Game 1" },
+      { gameType: "doubles", gameNumber: 2, heading: "Doubles Game 2" },
+      { gameType: "doubles", gameNumber: 3, heading: "Doubles Game 3" },
+    ];
+  }
+  return [1, 2, 3].map((n) => ({ gameType: "doubles" as GameType, gameNumber: n, heading: `Game ${n}` }));
+}
 
 function GameSection({
   matchId,
+  gameType,
   gameNumber,
+  heading,
   game,
   homeTeam,
   awayTeam,
   allPokemon,
 }: {
   matchId: number;
+  gameType: GameType;
   gameNumber: number;
+  heading: string;
   game: MatchGame | undefined;
   homeTeam: Team;
   awayTeam: Team;
@@ -82,12 +102,13 @@ function GameSection({
 
   return (
     <div className="border border-white/10 rounded-xl p-5 flex flex-col gap-5">
-      <h3 className="text-base font-semibold text-white">Game {gameNumber}</h3>
+      <h3 className="text-base font-semibold text-white">{heading}</h3>
 
       {/* Winner + replay */}
       <form action={gameAction} className="flex flex-col gap-3">
         <input type="hidden" name="match_id" value={matchId} />
         <input type="hidden" name="game_number" value={gameNumber} />
+        <input type="hidden" name="game_type" value={gameType} />
         <div className="flex items-center gap-3 flex-wrap">
           <div>
             <label className="block text-xs text-gray-400 mb-1">Winner</label>
@@ -190,7 +211,7 @@ function GameSection({
   );
 }
 
-export default function MatchDetailManager({ matchId, homeTeam, awayTeam, games, allPokemon }: Props) {
+export default function MatchDetailManager({ matchId, homeTeam, awayTeam, games, allPokemon, matchFormat }: Props) {
   const [confirming, setConfirming] = useState(false);
   const [clearPending, startClear] = useTransition();
   const hasResults = games.length > 0;
@@ -242,12 +263,14 @@ export default function MatchDetailManager({ matchId, homeTeam, awayTeam, games,
         </div>
       )}
 
-      {[1, 2, 3].map((n) => (
+      {slotsForFormat(matchFormat).map((slot) => (
         <GameSection
-          key={n}
+          key={`${slot.gameType}-${slot.gameNumber}`}
           matchId={matchId}
-          gameNumber={n}
-          game={games.find((g) => g.game_number === n)}
+          gameType={slot.gameType}
+          gameNumber={slot.gameNumber}
+          heading={slot.heading}
+          game={games.find((g) => g.game_number === slot.gameNumber && g.game_type === slot.gameType)}
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           allPokemon={allPokemon}

@@ -27,13 +27,18 @@ export async function createSeason(prevState: State, formData: FormData): Promis
   return null;
 }
 
-export async function updateSeasonConfig(id: number, pointBudget: number, faTokens: number) {
+export async function updateSeasonConfig(
+  id: number,
+  pointBudget: number,
+  faTokens: number,
+  matchFormat: "bo3" | "singles_doubles"
+) {
   await requireAdmin();
 
   const admin = createAdminClient();
   const { error } = await admin
     .from("seasons")
-    .update({ point_budget: pointBudget, fa_tokens: faTokens })
+    .update({ point_budget: pointBudget, fa_tokens: faTokens, match_format: matchFormat })
     .eq("id", id);
 
   if (error) throw new Error(error.message);

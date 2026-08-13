@@ -11,6 +11,10 @@ CREATE TABLE seasons (
   is_active    BOOLEAN     NOT NULL DEFAULT FALSE,
   point_budget INTEGER     NOT NULL DEFAULT 115,
   fa_tokens    INTEGER     NOT NULL DEFAULT 3,
+  -- 'bo3' (default) is the standard format used by every season unless an
+  -- admin opts a specific season into 'singles_doubles' (a Bo1 singles game
+  -- + a Bo3 doubles series, each worth its own win/loss).
+  match_format TEXT        NOT NULL DEFAULT 'bo3' CHECK (match_format IN ('bo3', 'singles_doubles')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -722,15 +726,25 @@ CREATE INDEX idx_matches_away_team   ON matches (away_team_id);
 
 
 -- ------------------------------------------------------------
--- MATCH GAMES  (individual games within a BO3, up to 3)
+-- MATCH GAMES  (individual games within a match)
+--
+-- For 'bo3' seasons this is a single up-to-3-game doubles series
+-- (game_type defaults to 'doubles', game_number 1-3). For 'singles_doubles'
+-- seasons a match holds two independent components: one 'singles' game
+-- (always game_number 1) and up to three 'doubles' games (game_number 1-3).
 -- ------------------------------------------------------------
 CREATE TABLE match_games (
   id             SERIAL  PRIMARY KEY,
   match_id       INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-  game_number    INTEGER NOT NULL CHECK (game_number BETWEEN 1 AND 3),
+  game_number    INTEGER NOT NULL,
+  game_type      TEXT    NOT NULL DEFAULT 'doubles' CHECK (game_type IN ('singles', 'doubles')),
   winner_team_id INTEGER REFERENCES teams(id),
   replay_url     TEXT,
-  UNIQUE (match_id, game_number)
+  CHECK (
+    (game_type = 'singles' AND game_number = 1) OR
+    (game_type = 'doubles' AND game_number BETWEEN 1 AND 3)
+  ),
+  UNIQUE (match_id, game_type, game_number)
 );
 
 CREATE INDEX idx_match_games_match ON match_games (match_id);

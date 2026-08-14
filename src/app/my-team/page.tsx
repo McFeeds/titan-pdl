@@ -99,7 +99,7 @@ export default async function MyTeamPage() {
 
     supabase
       .from("team_seasons")
-      .select("conference_id, draft_position, draft_ended_at, fa_tokens_adjustment")
+      .select("conference_id, draft_pool_id, draft_position, draft_ended_at, fa_tokens_adjustment")
       .eq("team_id", teamId)
       .eq("season_id", activeSeason.id)
       .maybeSingle(),
@@ -114,39 +114,44 @@ export default async function MyTeamPage() {
     supabase.from("transaction_items").select("transaction_id, team_id, action, pokemon_id"),
   ]);
 
-  // Conference-scoped data (draft state, roster-wide pokemon, team count)
-  // needs the conference_id resolved above, so it's a second phase.
+  // Conference-scoped data (roster-wide pokemon pool) needs conference_id;
+  // draft state and turn order are now scoped by draft_pool_id instead —
+  // independent of conference, since a pool can span multiple conferences.
   const conferenceId = teamSeason?.conference_id ?? null;
+  const draftPoolId = teamSeason?.draft_pool_id ?? null;
   const [
-    { data: draftState },
+    { data: draftPool },
     { data: conferenceRosters },
-    { data: conferenceTeamSeasons },
+    { data: poolTeamSeasons },
     { data: draftLog },
-  ] = conferenceId
-    ? await Promise.all([
-        supabase
-          .from("conference_drafts")
+  ] = await Promise.all([
+    draftPoolId
+      ? supabase
+          .from("draft_pools")
           .select("is_active, started_at")
-          .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId)
-          .maybeSingle(),
-        supabase
+          .eq("id", draftPoolId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    conferenceId
+      ? supabase
           .from("rosters")
           .select("pokemon_id")
           .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId),
-        supabase
+          .eq("conference_id", conferenceId)
+      : Promise.resolve({ data: null }),
+    draftPoolId
+      ? supabase
           .from("team_seasons")
           .select("team_id, draft_position, draft_ended_at")
-          .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId),
-        supabase
+          .eq("draft_pool_id", draftPoolId)
+      : Promise.resolve({ data: null }),
+    draftPoolId
+      ? supabase
           .from("draft_log")
           .select("team_id")
-          .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId),
-      ])
-    : [{ data: null }, { data: null }, { data: null }, { data: null }];
+          .eq("draft_pool_id", draftPoolId)
+      : Promise.resolve({ data: null }),
+  ]);
 
   // Collect opponent team IDs and fetch them in one query
   const opponentIds = new Set<number>();
@@ -230,8 +235,8 @@ export default async function MyTeamPage() {
 
   // Draft mode: never started -> locked, active -> drafting, ended -> free agency
   let draftMode: DraftMode = "pre_draft";
-  if (draftState?.is_active) draftMode = "drafting";
-  else if (draftState?.started_at) draftMode = "free_agency";
+  if (draftPool?.is_active) draftMode = "drafting";
+  else if (draftPool?.started_at) draftMode = "free_agency";
 
   // Undrafted pokemon in this team's conference, for the add picker — also
   // excludes anything this team has already dropped this season, since
@@ -258,12 +263,12 @@ export default async function MyTeamPage() {
   // uses the same skip-aware turn math as the public draft board, so a
   // team that ended early is correctly never shown as on the clock.
   let isOnClock = false;
-  if (draftMode === "drafting" && conferenceTeamSeasons) {
+  if (draftMode === "drafting" && poolTeamSeasons) {
     const picksMadeByTeam = new Map<number, number>();
     for (const row of draftLog ?? []) {
       picksMadeByTeam.set(row.team_id, (picksMadeByTeam.get(row.team_id) ?? 0) + 1);
     }
-    const teamStates = conferenceTeamSeasons.map((ts) => ({
+    const teamStates = poolTeamSeasons.map((ts) => ({
       id: ts.team_id,
       draftPosition: ts.draft_position,
       draftEnded: ts.draft_ended_at !== null,

@@ -8,16 +8,16 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 type ActionResult = { error: string | null };
 
-async function getConferenceDraftState(
+async function getDraftPoolState(
   admin: SupabaseClient,
-  seasonId: number,
-  conferenceId: number
+  draftPoolId: number | null
 ): Promise<{ isActive: boolean; startedAt: string | null }> {
+  if (draftPoolId === null) return { isActive: false, startedAt: null };
+
   const { data } = await admin
-    .from("conference_drafts")
+    .from("draft_pools")
     .select("is_active, started_at")
-    .eq("season_id", seasonId)
-    .eq("conference_id", conferenceId)
+    .eq("id", draftPoolId)
     .maybeSingle();
 
   return { isActive: data?.is_active ?? false, startedAt: data?.started_at ?? null };
@@ -28,19 +28,19 @@ export async function submitDraftPick(pokemonId: number): Promise<ActionResult> 
   if (!team) return { error };
 
   const admin = createAdminClient();
-  const draftState = await getConferenceDraftState(admin, team.seasonId, team.conferenceId);
+  const draftState = await getDraftPoolState(admin, team.draftPoolId);
 
   if (!draftState.isActive) {
     return {
       error: draftState.startedAt
-        ? "The draft has ended for your conference."
-        : "The draft hasn't started yet for your conference.",
+        ? "The draft has ended for your pool."
+        : "The draft hasn't started yet for your pool.",
     };
   }
 
   const { error: rpcError } = await admin.rpc("submit_draft_pick", {
     p_season_id: team.seasonId,
-    p_conference_id: team.conferenceId,
+    p_draft_pool_id: team.draftPoolId,
     p_team_id: team.teamId,
     p_pokemon_id: pokemonId,
     p_max_slots: DRAFT_SLOT_COUNT,
@@ -58,13 +58,13 @@ async function submitFreeAgencyMove(
   action: "add" | "drop"
 ): Promise<ActionResult> {
   const admin = createAdminClient();
-  const draftState = await getConferenceDraftState(admin, team.seasonId, team.conferenceId);
+  const draftState = await getDraftPoolState(admin, team.draftPoolId);
 
   if (!draftState.startedAt) {
-    return { error: "Free agency opens once your conference's draft has started." };
+    return { error: "Free agency opens once your draft pool has started." };
   }
   if (draftState.isActive) {
-    return { error: "The draft is still in progress for your conference." };
+    return { error: "The draft is still in progress for your pool." };
   }
 
   const { error: rpcError } = await admin.rpc("submit_free_agency_move", {
@@ -99,9 +99,9 @@ export async function endMyDraft(): Promise<ActionResult> {
   if (!team) return { error };
 
   const admin = createAdminClient();
-  const draftState = await getConferenceDraftState(admin, team.seasonId, team.conferenceId);
+  const draftState = await getDraftPoolState(admin, team.draftPoolId);
   if (!draftState.isActive) {
-    return { error: "The draft isn't active for your conference." };
+    return { error: "The draft isn't active for your pool." };
   }
 
   const { error: rpcError } = await admin.rpc("end_team_draft", {

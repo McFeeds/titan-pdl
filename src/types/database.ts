@@ -67,6 +67,8 @@ export interface TeamSeason {
   season_id: number;
   conference_id: number;
   group_id: number | null;
+  // Which draft pool this team drafts in — independent of conference/group.
+  draft_pool_id: number | null;
   draft_position: number | null;
   draft_ended_at: string | null;
   fa_tokens_adjustment: number;
@@ -121,6 +123,7 @@ export interface Roster {
 export interface DraftLog {
   id: number;
   season_id: number;
+  draft_pool_id: number;
   conference_id: number;
   pick_number: number;
   team_id: number;
@@ -128,9 +131,12 @@ export interface DraftLog {
   created_at: string;
 }
 
-export interface ConferenceDraft {
+// A set of teams that draft together, in a shared turn order — independent
+// of conference/group, which stay purely for standings and rostering.
+export interface DraftPool {
+  id: number;
   season_id: number;
-  conference_id: number;
+  name: string;
   is_active: boolean;
   started_at: string | null;
 }

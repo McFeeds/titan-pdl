@@ -250,21 +250,29 @@ interface TeamDraftInfo {
   id: number;
   name: string;
   conferenceId: number;
+  draftPoolId: number | null;
   draftPosition: number | null;
   pokemonIds: number[];
   draftEnded: boolean;
 }
 
+interface DraftPoolInfo {
+  id: number;
+  name: string;
+}
+
 interface Props {
   conferences: Conference[];
+  pools: DraftPoolInfo[];
   pokemon: PokemonWithMoves[];
   activeSeasonId: number | null;
   draftedByConference: { conferenceId: number; pokemonIds: number[] }[];
   userConferenceId: number | null;
+  userDraftPoolId: number | null;
   userTeamId: number | null;
   teams: TeamDraftInfo[];
-  draftLog: { id: number; conferenceId: number; teamId: number }[];
-  draftActiveByConference: { conferenceId: number; isActive: boolean; startedAt: string | null }[];
+  draftLog: { id: number; draftPoolId: number; teamId: number }[];
+  draftActiveByPool: { poolId: number; isActive: boolean; startedAt: string | null }[];
   pointBudget: number;
   faTokens: number;
   faTokensUsedByTeam: Record<number, number>;
@@ -274,22 +282,24 @@ interface Props {
 
 export default function DraftBoard({
   conferences,
+  pools,
   pokemon,
   activeSeasonId,
   draftedByConference: initialDrafted,
   userConferenceId,
+  userDraftPoolId,
   userTeamId,
   teams,
   draftLog,
-  draftActiveByConference,
+  draftActiveByPool,
   pointBudget,
   faTokens,
   faTokensUsedByTeam: initialFaTokensUsedByTeam,
   droppedByUserTeam,
 }: Props) {
   const router = useRouter();
-  const defaultConferenceId = userConferenceId ?? conferences[0]?.id ?? null;
-  const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(defaultConferenceId);
+  const defaultPoolId = userDraftPoolId ?? pools[0]?.id ?? null;
+  const [selectedPoolId, setSelectedPoolId] = useState<number | null>(defaultPoolId);
   const [view, setView] = useState<"pool" | "teams">("pool");
 
   // DraftTurnAlert's "Go to Draft" link points at this same page, so a plain
@@ -326,11 +336,11 @@ export default function DraftBoard({
     }
   );
 
-  // How many picks have been logged so far, per conference — drives turn tracking
+  // How many picks have been logged so far, per draft pool — drives turn tracking
   const [pickCountMap, setPickCountMap] = useState<Record<number, number>>(() => {
     const map: Record<number, number> = {};
-    for (const { conferenceId } of draftLog) {
-      map[conferenceId] = (map[conferenceId] ?? 0) + 1;
+    for (const { draftPoolId } of draftLog) {
+      map[draftPoolId] = (map[draftPoolId] ?? 0) + 1;
     }
     return map;
   });
@@ -347,27 +357,27 @@ export default function DraftBoard({
     return map;
   });
 
-  // draft_log DELETE payloads only carry the row id (not conference_id or
-  // team_id), so this tracks id -> {conferenceId, teamId} locally to know
+  // draft_log DELETE payloads only carry the row id (not draft_pool_id or
+  // team_id), so this tracks id -> {draftPoolId, teamId} locally to know
   // what to decrement.
-  const pickIdToInfoRef = useRef<Map<number, { conferenceId: number; teamId: number }>>(
-    new Map(draftLog.map((d) => [d.id, { conferenceId: d.conferenceId, teamId: d.teamId }]))
+  const pickIdToInfoRef = useRef<Map<number, { draftPoolId: number; teamId: number }>>(
+    new Map(draftLog.map((d) => [d.id, { draftPoolId: d.draftPoolId, teamId: d.teamId }]))
   );
 
   const [draftActiveMap, setDraftActiveMap] = useState<Record<number, boolean>>(() => {
     const map: Record<number, boolean> = {};
-    for (const { conferenceId, isActive } of draftActiveByConference) {
-      map[conferenceId] = isActive;
+    for (const { poolId, isActive } of draftActiveByPool) {
+      map[poolId] = isActive;
     }
     return map;
   });
 
-  // Set once a conference's draft has ever been started — distinguishes
+  // Set once a pool's draft has ever been started — distinguishes
   // "not started yet" (locked) from "ended" (free agency open).
   const [draftStartedMap, setDraftStartedMap] = useState<Record<number, string | null>>(() => {
     const map: Record<number, string | null> = {};
-    for (const { conferenceId, startedAt } of draftActiveByConference) {
-      map[conferenceId] = startedAt;
+    for (const { poolId, startedAt } of draftActiveByPool) {
+      map[poolId] = startedAt;
     }
     return map;
   });
@@ -464,14 +474,14 @@ export default function DraftBoard({
           const row = payload.new as {
             id: number;
             season_id: number;
-            conference_id: number;
+            draft_pool_id: number;
             team_id: number;
           };
           if (row.season_id !== activeSeasonId) return;
-          pickIdToInfoRef.current.set(row.id, { conferenceId: row.conference_id, teamId: row.team_id });
+          pickIdToInfoRef.current.set(row.id, { draftPoolId: row.draft_pool_id, teamId: row.team_id });
           setPickCountMap((prev) => ({
             ...prev,
-            [row.conference_id]: (prev[row.conference_id] ?? 0) + 1,
+            [row.draft_pool_id]: (prev[row.draft_pool_id] ?? 0) + 1,
           }));
           setTeamPickCountMap((prev) => ({
             ...prev,
@@ -484,14 +494,14 @@ export default function DraftBoard({
         { event: "DELETE", schema: "public", table: "draft_log" },
         (payload) => {
           // DELETE payloads only guarantee the primary key (id), so the
-          // conference/team are looked up from what INSERT events already told us.
+          // pool/team are looked up from what INSERT events already told us.
           const row = payload.old as { id: number };
           const info = pickIdToInfoRef.current.get(row.id);
           if (info === undefined) return;
           pickIdToInfoRef.current.delete(row.id);
           setPickCountMap((prev) => ({
             ...prev,
-            [info.conferenceId]: Math.max(0, (prev[info.conferenceId] ?? 0) - 1),
+            [info.draftPoolId]: Math.max(0, (prev[info.draftPoolId] ?? 0) - 1),
           }));
           setTeamPickCountMap((prev) => ({
             ...prev,
@@ -501,32 +511,32 @@ export default function DraftBoard({
       )
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "conference_drafts" },
+        { event: "INSERT", schema: "public", table: "draft_pools" },
         (payload) => {
           const row = payload.new as {
+            id: number;
             season_id: number;
-            conference_id: number;
             is_active: boolean;
             started_at: string | null;
           };
           if (row.season_id !== activeSeasonId) return;
-          setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
-          setDraftStartedMap((prev) => ({ ...prev, [row.conference_id]: row.started_at }));
+          setDraftActiveMap((prev) => ({ ...prev, [row.id]: row.is_active }));
+          setDraftStartedMap((prev) => ({ ...prev, [row.id]: row.started_at }));
         }
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "conference_drafts" },
+        { event: "UPDATE", schema: "public", table: "draft_pools" },
         (payload) => {
           const row = payload.new as {
+            id: number;
             season_id: number;
-            conference_id: number;
             is_active: boolean;
             started_at: string | null;
           };
           if (row.season_id !== activeSeasonId) return;
-          setDraftActiveMap((prev) => ({ ...prev, [row.conference_id]: row.is_active }));
-          setDraftStartedMap((prev) => ({ ...prev, [row.conference_id]: row.started_at }));
+          setDraftActiveMap((prev) => ({ ...prev, [row.id]: row.is_active }));
+          setDraftStartedMap((prev) => ({ ...prev, [row.id]: row.started_at }));
         }
       )
       .on(
@@ -545,12 +555,36 @@ export default function DraftBoard({
     };
   }, [activeSeasonId, teams]);
 
+  const teamsForPool = useMemo(
+    () =>
+      teams
+        .filter((t) => t.draftPoolId === selectedPoolId)
+        .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999)),
+    [teams, selectedPoolId]
+  );
+
+  // A pool usually maps to exactly one conference (today's default). If it
+  // spans more than one, the Pool (pokemon browsing) view needs its own
+  // conference selector, since pokemon availability stays per-conference —
+  // default to the viewer's own conference when they're a member of it.
+  const poolConferenceIds = useMemo(
+    () => [...new Set(teamsForPool.map((t) => t.conferenceId))],
+    [teamsForPool]
+  );
+  const [manualViewingConferenceId, setManualViewingConferenceId] = useState<number | null>(null);
+  const viewingConferenceId =
+    manualViewingConferenceId !== null && poolConferenceIds.includes(manualViewingConferenceId)
+      ? manualViewingConferenceId
+      : userConferenceId !== null && poolConferenceIds.includes(userConferenceId)
+        ? userConferenceId
+        : poolConferenceIds[0] ?? null;
+
   const draftedIds = useMemo(
     () =>
-      selectedConferenceId !== null
-        ? (draftedMap[selectedConferenceId] ?? new Set<number>())
+      viewingConferenceId !== null
+        ? (draftedMap[viewingConferenceId] ?? new Set<number>())
         : new Set<number>(),
-    [selectedConferenceId, draftedMap]
+    [viewingConferenceId, draftedMap]
   );
 
   const filterFn = useMemo(
@@ -578,47 +612,49 @@ export default function DraftBoard({
     [pokemon]
   );
 
+  const conferenceNameById = useMemo(
+    () => new Map(conferences.map((c) => [c.id, c.name])),
+    [conferences]
+  );
+
   const undraftedForPicker = useMemo(
     () => pokemon.filter((p) => !draftedIds.has(p.id)),
     [pokemon, draftedIds]
   );
 
-  const teamsForConference = useMemo(
-    () =>
-      teams
-        .filter((t) => t.conferenceId === selectedConferenceId)
-        .sort((a, b) => (a.draftPosition ?? 999) - (b.draftPosition ?? 999)),
-    [teams, selectedConferenceId]
-  );
+  const isDraftActive = selectedPoolId !== null && !!draftActiveMap[selectedPoolId];
 
-  const isDraftActive = selectedConferenceId !== null && !!draftActiveMap[selectedConferenceId];
-
-  const nextPickNumber = (selectedConferenceId !== null ? pickCountMap[selectedConferenceId] ?? 0 : 0) + 1;
+  const nextPickNumber = (selectedPoolId !== null ? pickCountMap[selectedPoolId] ?? 0 : 0) + 1;
 
   const onClockTeamId = useMemo(() => {
     if (!isDraftActive) return null;
-    const teamStates = teamsForConference.map((t) => ({
+    const teamStates = teamsForPool.map((t) => ({
       id: t.id,
       draftPosition: t.draftPosition,
       draftEnded: draftEndedMap[t.id] ?? false,
       picksMade: teamPickCountMap[t.id] ?? 0,
     }));
     return computeOnClockTeamId(teamStates);
-  }, [isDraftActive, teamsForConference, draftEndedMap, teamPickCountMap]);
+  }, [isDraftActive, teamsForPool, draftEndedMap, teamPickCountMap]);
 
-  // Click-to-draft is only interactive while viewing your own conference —
-  // every other case (other conference, logged out) stays view-only.
-  const isViewingOwnConference =
-    userTeamId !== null && selectedConferenceId !== null && selectedConferenceId === userConferenceId;
+  // Click-to-draft is only interactive while viewing your own pool — every
+  // other case (other pool, logged out) stays view-only.
+  const isViewingOwnPool =
+    userTeamId !== null && selectedPoolId !== null && selectedPoolId === userDraftPoolId;
   const myDraftEnded = userTeamId !== null && !!draftEndedMap[userTeamId];
-  const selectedDraftStarted = selectedConferenceId !== null ? draftStartedMap[selectedConferenceId] : null;
-  const clickMode: "draft" | "add" | null = !isViewingOwnConference
+  const selectedDraftStarted = selectedPoolId !== null ? draftStartedMap[selectedPoolId] : null;
+  const clickMode: "draft" | "add" | null = !isViewingOwnPool
     ? null
     : isDraftActive && !myDraftEnded
       ? "draft"
       : selectedDraftStarted
         ? "add"
         : null;
+
+  // The Pool tab additionally requires viewing your own conference's
+  // pokemon — a pool can span multiple conferences, but availability (and
+  // therefore what you can actually draft) stays per-conference.
+  const canPickFromPool = clickMode !== null && viewingConferenceId === userConferenceId;
 
   const myTeamPokemonIds = userTeamId !== null ? teamRosterMap[userTeamId] ?? new Set<number>() : new Set<number>();
   const myTeamSpent = [...myTeamPokemonIds].reduce(
@@ -678,16 +714,16 @@ export default function DraftBoard({
   return (
     <main className="pt-20 pb-16 min-h-screen">
       <div className="max-w-7xl mx-auto px-6">
-        {/* Conference toggle */}
+        {/* Draft pool toggle */}
         <div className="my-6">
           <div className="bg-white/5 rounded-2xl p-1.5 flex w-full border border-white/10">
-            {conferences.map((conf) => {
-              const isSelected = selectedConferenceId === conf.id;
-              const theme = getConferenceTheme(conf.name);
+            {pools.map((pool) => {
+              const isSelected = selectedPoolId === pool.id;
+              const theme = getConferenceTheme(pool.name);
               return (
                 <button
-                  key={conf.id}
-                  onClick={() => setSelectedConferenceId(conf.id)}
+                  key={pool.id}
+                  onClick={() => setSelectedPoolId(pool.id)}
                   className={`flex-1 py-4 rounded-xl font-bold text-xl tracking-wide transition-[color,box-shadow] duration-200 ${
                     isSelected
                       ? "text-white"
@@ -703,12 +739,41 @@ export default function DraftBoard({
                       : undefined
                   }
                 >
-                  {conf.name}
+                  {pool.name}
                 </button>
               );
             })}
           </div>
         </div>
+
+        {/* Conference selector — only shown when the selected pool spans
+            more than one conference, since pokemon availability stays
+            per-conference even when teams from different conferences draft
+            together. */}
+        {view === "pool" && poolConferenceIds.length > 1 && (
+          <div className="mb-4 flex items-center gap-2 flex-wrap">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+              Viewing pool:
+            </span>
+            {poolConferenceIds.map((confId) => {
+              const conf = conferences.find((c) => c.id === confId);
+              const isSelected = viewingConferenceId === confId;
+              return (
+                <button
+                  key={confId}
+                  onClick={() => setManualViewingConferenceId(confId)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-colors ${
+                    isSelected
+                      ? "bg-indigo-600 text-white"
+                      : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {conf?.name ?? `Conference #${confId}`}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* View toggle + search (search only shown in Pool view). Only pinned
             while on the Pool tab — the Teams tab's grid already fits without
@@ -781,8 +846,8 @@ export default function DraftBoard({
                       key={p.id}
                       pokemon={p}
                       isDrafted={draftedIds.has(p.id)}
-                      clickable={clickMode !== null}
-                      onClick={clickMode !== null ? () => setPickingPokemon(p) : undefined}
+                      clickable={canPickFromPool}
+                      onClick={canPickFromPool ? () => setPickingPokemon(p) : undefined}
                     />
                   ))}
                 </div>
@@ -794,18 +859,19 @@ export default function DraftBoard({
           <div className="w-screen relative left-1/2 right-1/2 -mx-[50vw] px-6">
             <div className="max-w-[1700px] mx-auto">
               <TeamsView
-                teams={teamsForConference}
+                teams={teamsForPool}
                 teamRosterMap={teamRosterMap}
                 pokemonById={pokemonById}
                 isDraftActive={isDraftActive}
                 onClockTeamId={onClockTeamId}
                 draftEndedMap={draftEndedMap}
                 nextPickNumber={nextPickNumber}
-                teamCount={teamsForConference.length}
+                teamCount={teamsForPool.length}
                 pointBudget={pointBudget}
                 userTeamId={userTeamId}
                 canPick={clickMode !== null}
                 onOpenPicker={() => setPickerOpen(true)}
+                conferenceNameById={conferenceNameById}
               />
             </div>
           </div>
@@ -885,6 +951,7 @@ function TeamsView({
   userTeamId,
   canPick,
   onOpenPicker,
+  conferenceNameById,
 }: {
   teams: TeamDraftInfo[];
   teamRosterMap: Record<number, Set<number>>;
@@ -898,14 +965,19 @@ function TeamsView({
   userTeamId: number | null;
   canPick: boolean;
   onOpenPicker: () => void;
+  conferenceNameById: Map<number, string>;
 }) {
   if (teams.length === 0) {
     return (
       <div className="text-center py-20 text-gray-500 text-sm">
-        No teams found for this conference.
+        No teams found for this draft pool.
       </div>
     );
   }
+
+  // Only label each team's conference when the pool actually mixes more
+  // than one — the common single-conference pool stays exactly as before.
+  const showConferenceBadge = new Set(teams.map((t) => t.conferenceId)).size > 1;
 
   const totalSlots = teamCount * DRAFT_SLOT_COUNT;
   // onClockTeamId is null exactly when compute_on_clock_team's skip-aware
@@ -966,6 +1038,11 @@ function TeamsView({
                 <span className="text-white text-base font-bold truncate min-w-0">
                   {team.name}
                 </span>
+                {showConferenceBadge && (
+                  <span className="text-[10px] font-semibold text-gray-500 bg-white/5 border border-white/10 rounded-full px-2 py-0.5 shrink-0">
+                    {conferenceNameById.get(team.conferenceId) ?? `#${team.conferenceId}`}
+                  </span>
+                )}
                 {onClock && (
                   <span className="ml-auto flex items-center gap-1 text-[10px] font-bold text-emerald-400 tracking-wide shrink-0">
                     <span className="relative flex h-1.5 w-1.5">

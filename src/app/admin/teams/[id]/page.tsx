@@ -24,10 +24,17 @@ export default async function EditTeamPage({
     supabase.from("seasons").select("id, name, is_active").eq("is_active", true).maybeSingle(),
     supabase.from("conferences").select("id, name").order("name"),
     supabase.from("groups").select("id, name, conference_id").order("name"),
-    supabase.from("team_seasons").select("team_id, season_id, conference_id, group_id, draft_position").eq("team_id", Number(id)),
+    supabase
+      .from("team_seasons")
+      .select("team_id, season_id, conference_id, group_id, draft_pool_id, draft_position")
+      .eq("team_id", Number(id)),
   ]);
 
   if (!team) notFound();
+
+  const { data: draftPools } = activeSeason
+    ? await supabase.from("draft_pools").select("id, name").eq("season_id", activeSeason.id).order("name")
+    : { data: [] };
 
   const { data: members } = activeSeason
     ? await supabase
@@ -47,6 +54,7 @@ export default async function EditTeamPage({
         activeSeason={activeSeason ?? null}
         conferences={conferences ?? []}
         groups={groups ?? []}
+        draftPools={draftPools ?? []}
         teamSeasons={teamSeasons ?? []}
       />
       <TeamMembersManager

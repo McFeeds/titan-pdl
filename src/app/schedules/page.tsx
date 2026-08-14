@@ -26,10 +26,14 @@ export default async function SchedulesPage() {
       (user.user_metadata?.user_name as string | undefined) ||
       (user.user_metadata?.full_name as string | undefined);
     if (discordUsername) {
+      // Scoped to the active season — a player who changed teams between
+      // seasons has one team_members row per season, and an unscoped
+      // lookup could resolve to a stale team from a past season.
       const { data: membership } = await supabase
         .from("team_members")
         .select("team_id")
         .ilike("discord_id", discordUsername)
+        .eq("season_id", activeSeason.id)
         .limit(1)
         .maybeSingle();
       if (membership?.team_id) {

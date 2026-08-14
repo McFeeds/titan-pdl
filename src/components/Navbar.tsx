@@ -64,18 +64,32 @@ export default function Navbar() {
         return;
       }
 
+      // Scoped to the active season — a player who changed teams between
+      // seasons has one team_members row per season, so an unscoped
+      // lookup (and .single(), which errors on more than one match) could
+      // fail or resolve to a stale team from a past season.
+      const { data: activeSeason } = await supabase
+        .from("seasons")
+        .select("id")
+        .eq("is_active", true)
+        .limit(1)
+        .maybeSingle();
+
       const [{ data: membership }, { data: adminData }] = await Promise.all([
-        supabase
-          .from("team_members")
-          .select("teams(team_name, logo_url)")
-          .ilike("discord_id", discordUsername)
-          .limit(1)
-          .single(),
+        activeSeason
+          ? supabase
+              .from("team_members")
+              .select("teams(team_name, logo_url)")
+              .ilike("discord_id", discordUsername)
+              .eq("season_id", activeSeason.id)
+              .limit(1)
+              .maybeSingle()
+          : Promise.resolve({ data: null }),
         supabase
           .from("admins")
           .select("discord_id")
           .ilike("discord_id", discordUsername)
-          .single(),
+          .maybeSingle(),
       ]);
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -37,6 +37,7 @@ function GroupTable({ name, teams }: { name: string; teams: TeamStanding[] }) {
                 <th className="px-2 py-2">Team</th>
                 <th className="px-2 py-2 text-center w-10">W</th>
                 <th className="px-2 py-2 text-center w-10">L</th>
+                <th className="px-2 py-2 text-center w-12">±</th>
                 <th className="px-4 py-2 text-center w-14">PCT</th>
               </tr>
             </thead>
@@ -58,6 +59,17 @@ function GroupTable({ name, teams }: { name: string; teams: TeamStanding[] }) {
                   </td>
                   <td className="px-2 py-2.5 text-center font-mono text-xs text-red-400 font-semibold">
                     {team.losses}
+                  </td>
+                  <td
+                    className={`px-2 py-2.5 text-center font-mono text-xs font-semibold ${
+                      team.plusMinus > 0
+                        ? "text-emerald-400"
+                        : team.plusMinus < 0
+                          ? "text-red-400"
+                          : "text-gray-500"
+                    }`}
+                  >
+                    {team.plusMinus > 0 ? `+${team.plusMinus}` : team.plusMinus}
                   </td>
                   <td className="px-4 py-2.5 text-center font-mono text-xs text-gray-400">
                     {formatPct(team.wins, team.losses)}

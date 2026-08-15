@@ -36,8 +36,13 @@ export default async function StandingsPage() {
   const matchFormat = activeSeason.match_format;
 
   // Season W/L per team (format-aware — see src/lib/matchRecord.ts), same
-  // computation used on the Schedules page.
+  // computation used on the Schedules page. Alongside it, +/- tallies every
+  // individual game played (not match-level wins) regardless of format —
+  // e.g. 1-0 singles + 1-2 doubles is a 1-1 match record but a 2-2 (0) game
+  // differential — so it's accumulated directly from match_games rather
+  // than from the win/loss components above.
   const teamRecords: Record<number, { wins: number; losses: number }> = {};
+  const teamGameDiff: Record<number, number> = {};
   function ensureRecord(id: number) {
     if (!teamRecords[id]) teamRecords[id] = { wins: 0, losses: 0 };
   }
@@ -53,6 +58,16 @@ export default async function StandingsPage() {
       teamRecords[m.away_team_id].wins += awayWins;
       teamRecords[m.away_team_id].losses += awayLosses;
     }
+
+    for (const g of games) {
+      if (g.winner_team_id === m.home_team_id) {
+        teamGameDiff[m.home_team_id] = (teamGameDiff[m.home_team_id] ?? 0) + 1;
+        teamGameDiff[m.away_team_id] = (teamGameDiff[m.away_team_id] ?? 0) - 1;
+      } else if (g.winner_team_id === m.away_team_id) {
+        teamGameDiff[m.away_team_id] = (teamGameDiff[m.away_team_id] ?? 0) + 1;
+        teamGameDiff[m.home_team_id] = (teamGameDiff[m.home_team_id] ?? 0) - 1;
+      }
+    }
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -65,6 +80,7 @@ export default async function StandingsPage() {
       logo_url: team?.logo_url ?? null,
       wins: record.wins,
       losses: record.losses,
+      plusMinus: teamGameDiff[teamId] ?? 0,
     };
   }
 
@@ -72,6 +88,7 @@ export default async function StandingsPage() {
     return [...rows].sort((a, b) => {
       if (b.wins !== a.wins) return b.wins - a.wins;
       if (a.losses !== b.losses) return a.losses - b.losses;
+      if (b.plusMinus !== a.plusMinus) return b.plusMinus - a.plusMinus;
       return a.team_name.localeCompare(b.team_name);
     });
   }

@@ -11,11 +11,13 @@ const labelCls = "block text-sm font-medium text-gray-300 mb-1";
 
 type Conference = { id: number; name: string };
 type Group = { id: number; name: string; conference_id: number };
+type DraftPool = { id: number; name: string };
 type TeamSeason = {
   team_id: number;
   season_id: number;
   conference_id: number;
   group_id: number | null;
+  draft_pool_id: number | null;
   draft_position: number | null;
 };
 type Season = { id: number; name: string; is_active: boolean };
@@ -25,6 +27,7 @@ type Props = {
   activeSeason: Season | null;
   conferences: Conference[];
   groups: Group[];
+  draftPools: DraftPool[];
   teamSeasons: TeamSeason[];
 };
 
@@ -33,6 +36,7 @@ export default function TeamSeasonForm({
   activeSeason,
   conferences,
   groups,
+  draftPools,
   teamSeasons,
 }: Props) {
   const activePlacement = activeSeason
@@ -107,6 +111,30 @@ export default function TeamSeasonForm({
               </option>
             ))}
           </select>
+        </div>
+
+        <div>
+          <label className={labelCls}>Draft Pool</label>
+          <select
+            name="draft_pool_id"
+            defaultValue={activePlacement?.draft_pool_id?.toString() ?? ""}
+            className={selectCls}
+          >
+            <option value="">— None —</option>
+            {draftPools.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <p className="text-xs text-gray-600 mt-1">
+            Which teams draft together, in what order — independent of
+            conference/group. Manage pools and bulk-assign teams on the{" "}
+            <a href="/admin/draft-pools" className="text-indigo-400 hover:text-indigo-300">
+              Draft Pools
+            </a>{" "}
+            page.
+          </p>
         </div>
 
         <div>

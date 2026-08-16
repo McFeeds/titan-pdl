@@ -60,6 +60,7 @@ export async function upsertTeamSeason(_prevState: State, formData: FormData): P
   const season_id = Number(formData.get("season_id"));
   const conference_id = formData.get("conference_id") ? Number(formData.get("conference_id")) : null;
   const group_id = formData.get("group_id") ? Number(formData.get("group_id")) : null;
+  const draft_pool_id = formData.get("draft_pool_id") ? Number(formData.get("draft_pool_id")) : null;
   const draft_position = formData.get("draft_position") ? Number(formData.get("draft_position")) : null;
 
   if (!season_id) return { error: "No active season found." };
@@ -68,7 +69,7 @@ export async function upsertTeamSeason(_prevState: State, formData: FormData): P
   const admin = createAdminClient();
   const { error } = await admin
     .from("team_seasons")
-    .upsert({ team_id, season_id, conference_id, group_id, draft_position });
+    .upsert({ team_id, season_id, conference_id, group_id, draft_pool_id, draft_position });
 
   if (error) return { error: error.message };
 

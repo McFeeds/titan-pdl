@@ -10,9 +10,7 @@ export default async function AdminRostersPage() {
     { data: teamSeasons },
     { data: pokemon },
     { data: roster },
-    { data: conferences },
-    { data: draftStates },
-    { data: draftLog },
+    { data: draftPools },
     { data: transactions },
     { data: transactionItems },
   ] = await Promise.all([
@@ -20,15 +18,10 @@ export default async function AdminRostersPage() {
     supabase.from("teams").select("id, team_name").order("team_name"),
     supabase
       .from("team_seasons")
-      .select("team_id, season_id, conference_id, draft_ended_at, fa_tokens_adjustment"),
+      .select("team_id, season_id, conference_id, draft_pool_id, draft_ended_at, fa_tokens_adjustment"),
     supabase.from("pokemon").select("id, name").order("name"),
     supabase.from("rosters").select("pokemon_id, season_id, conference_id, team_id, pokemon(name)"),
-    supabase.from("conferences").select("id, name").order("name"),
-    supabase.from("conference_drafts").select("season_id, conference_id, is_active"),
-    supabase
-      .from("draft_log")
-      .select("id, season_id, conference_id, pick_number, team_id, pokemon_id, created_at, pokemon(name)")
-      .order("pick_number"),
+    supabase.from("draft_pools").select("id, is_active"),
     supabase.from("transactions").select("id, season_id, type"),
     supabase.from("transaction_items").select("transaction_id, team_id, action"),
   ]);
@@ -58,10 +51,7 @@ export default async function AdminRostersPage() {
         pokemon={pokemon ?? []}
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         roster={(roster ?? []) as any}
-        conferences={conferences ?? []}
-        draftStates={draftStates ?? []}
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        draftLog={(draftLog ?? []) as any}
+        draftPools={draftPools ?? []}
         faTokensUsedByTeamSeason={faTokensUsedByTeamSeason}
       />
     </div>

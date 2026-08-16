@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient, getDiscordUsername } from "@/lib/supabase/admin";
 import { parseShowdownLog, nameToSlug } from "@/lib/showdown-log-parser";
 import type { SupabaseClient } from "@supabase/supabase-js";
+import type { GameType } from "@/types/database";
 
 // ---------- Exported types for the confirmation UI ----------
 
@@ -21,6 +22,7 @@ export interface TeamGameData {
 }
 
 export interface GameAnalysis {
+  gameType: GameType;
   gameNumber: number;
   replayUrl: string;
   winnerTeamName: string | null;
@@ -239,7 +241,7 @@ export async function updateRosterNickname(
 // Fetch and parse replays, return a preview for confirmation — no DB writes.
 export async function analyzeMatchResults(
   matchId: number,
-  games: { gameNumber: number; replayUrl: string }[]
+  games: { gameType: GameType; gameNumber: number; replayUrl: string }[]
 ): Promise<{ analysis: MatchAnalysis | null; error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -292,6 +294,7 @@ export async function analyzeMatchResults(
     };
 
     gameAnalyses.push({
+      gameType: game.gameType,
       gameNumber: game.gameNumber,
       replayUrl,
       winnerTeamName: winnerTeamId ? (teamNames.get(winnerTeamId) ?? null) : null,
@@ -308,7 +311,7 @@ export async function analyzeMatchResults(
 // Write confirmed results to the database.
 export async function submitMatchResults(
   matchId: number,
-  games: { gameNumber: number; replayUrl: string }[]
+  games: { gameType: GameType; gameNumber: number; replayUrl: string }[]
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -353,8 +356,8 @@ export async function submitMatchResults(
     const { data: gameRow, error: gameError } = await admin
       .from("match_games")
       .upsert(
-        { match_id: matchId, game_number: game.gameNumber, winner_team_id: winnerTeamId, replay_url: replayUrl },
-        { onConflict: "match_id,game_number" }
+        { match_id: matchId, game_number: game.gameNumber, game_type: game.gameType, winner_team_id: winnerTeamId, replay_url: replayUrl },
+        { onConflict: "match_id,game_type,game_number" }
       )
       .select("id")
       .single();

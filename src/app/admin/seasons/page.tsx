@@ -55,6 +55,7 @@ export default async function AdminSeasonsPage() {
                         id={season.id}
                         pointBudget={season.point_budget}
                         faTokens={season.fa_tokens}
+                        matchFormat={season.match_format}
                       />
                     </td>
                     <td className="py-3">

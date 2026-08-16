@@ -4,6 +4,7 @@ import { getDiscordUsername } from "@/lib/supabase/admin";
 export interface CallerTeam {
   teamId: number;
   conferenceId: number;
+  draftPoolId: number | null;
   draftPosition: number | null;
   seasonId: number;
 }
@@ -40,7 +41,7 @@ export async function resolveCallerTeam(): Promise<{ team: CallerTeam | null; er
 
   const { data: placement } = await supabase
     .from("team_seasons")
-    .select("conference_id, draft_position")
+    .select("conference_id, draft_pool_id, draft_position")
     .eq("team_id", membership.team_id)
     .eq("season_id", activeSeason.id)
     .maybeSingle();
@@ -50,6 +51,7 @@ export async function resolveCallerTeam(): Promise<{ team: CallerTeam | null; er
     team: {
       teamId: membership.team_id,
       conferenceId: placement.conference_id,
+      draftPoolId: placement.draft_pool_id,
       draftPosition: placement.draft_position,
       seasonId: activeSeason.id,
     },

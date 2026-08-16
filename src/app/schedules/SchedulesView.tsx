@@ -116,10 +116,10 @@ function TeamRow({
 function MatchupCard({ matchup }: { matchup: MatchupEntry }) {
   const [showReplays, setShowReplays] = useState(false);
 
-  const played = matchup.home_games_won >= 2 || matchup.away_games_won >= 2;
+  const played = matchup.decided;
   const inProgress = !played && matchup.total_games > 0;
-  const homeWon = matchup.home_games_won >= 2;
-  const awayWon = matchup.away_games_won >= 2;
+  const homeWon = played && matchup.home_games_won > matchup.away_games_won;
+  const awayWon = played && matchup.away_games_won > matchup.home_games_won;
 
   return (
     <div className="bg-[#0d0d20] border border-white/10 rounded-2xl overflow-hidden flex flex-col">
@@ -167,6 +167,18 @@ function MatchupCard({ matchup }: { matchup: MatchupEntry }) {
         />
       </div>
 
+      {/* Singles/doubles breakdown — only for the singles_doubles format */}
+      {played && matchup.match_format === "singles_doubles" && (
+        <div className="px-4 pb-3 flex items-center gap-3 text-[10px] text-gray-500">
+          {matchup.component_breakdown.map((c) => (
+            <span key={c.label}>
+              <span className="font-semibold text-gray-600">{c.label}:</span>{" "}
+              {c.winnerTeamName ?? "—"}
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* View Match footer — only on completed matches */}
       {played && (
         <div className="border-t border-white/[0.06] mt-auto">
@@ -184,14 +196,16 @@ function MatchupCard({ matchup }: { matchup: MatchupEntry }) {
                 <div className="border-t border-white/[0.06] px-4 py-3 flex flex-col gap-2">
                   {matchup.replay_links.map((r) => (
                     <a
-                      key={r.game_number}
+                      key={`${r.game_type}-${r.game_number}`}
                       href={r.url}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-2 text-xs text-gray-500 hover:text-white transition-colors group"
                     >
                       <span className="font-semibold text-gray-600 group-hover:text-gray-400 shrink-0">
-                        Game {r.game_number}
+                        {matchup.match_format === "singles_doubles"
+                          ? r.game_type === "singles" ? "Singles" : `Doubles Game ${r.game_number}`
+                          : `Game ${r.game_number}`}
                       </span>
                       <span className="flex-1 border-t border-dashed border-white/10" />
                       <span className="text-indigo-400 group-hover:text-indigo-300 font-semibold shrink-0">
@@ -241,7 +255,7 @@ export default function SchedulesView({
   const latestPlayedWeek = weeks.reduce<number | null>((acc, wk) => {
     const done = conferenceMatchups
       .filter((m) => m.week_number === wk)
-      .some((m) => m.home_games_won >= 2 || m.away_games_won >= 2);
+      .some((m) => m.decided);
     return done ? wk : acc;
   }, null);
 
@@ -293,7 +307,7 @@ export default function SchedulesView({
                 const isActive = effectiveWeek === wk;
                 const hasResults = conferenceMatchups
                   .filter((m) => m.week_number === wk)
-                  .some((m) => m.home_games_won >= 2 || m.away_games_won >= 2);
+                  .some((m) => m.decided);
                 return (
                   <button
                     key={wk}

@@ -22,14 +22,15 @@ export default async function MatchDetailPage({
 
   if (!match) notFound();
 
-  const [{ data: homeTeam }, { data: awayTeam }, { data: games }] = await Promise.all([
+  const [{ data: homeTeam }, { data: awayTeam }, { data: games }, { data: season }] = await Promise.all([
     supabase.from("teams").select("id, team_name").eq("id", match.home_team_id).single(),
     supabase.from("teams").select("id, team_name").eq("id", match.away_team_id).single(),
     supabase
       .from("match_games")
-      .select("id, game_number, winner_team_id, replay_url, match_game_pokemon(id, team_id, pokemon_id, kills, deaths, pokemon(name))")
+      .select("id, game_number, game_type, winner_team_id, replay_url, match_game_pokemon(id, team_id, pokemon_id, kills, deaths, pokemon(name))")
       .eq("match_id", Number(id))
       .order("game_number"),
+    supabase.from("seasons").select("match_format").eq("id", match.season_id).single(),
   ]);
 
   if (!homeTeam || !awayTeam) notFound();
@@ -55,6 +56,7 @@ export default async function MatchDetailPage({
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         games={(games ?? []) as any}
         allPokemon={allPokemon ?? []}
+        matchFormat={season?.match_format ?? "bo3"}
       />
     </div>
   );

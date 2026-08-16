@@ -2,7 +2,7 @@
 
 import { useActionState, useState } from "react";
 import Link from "next/link";
-import { createMatch } from "./actions";
+import { createMatch, generateRoundRobinSchedule } from "./actions";
 
 const selectCls =
   "px-3 py-2 bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
@@ -18,18 +18,35 @@ type Match = {
   home_team_id: number;
   away_team_id: number;
 };
+type Conference = { id: number; name: string };
+type Group = { id: number; name: string; conference_id: number };
+type TeamSeason = { team_id: number; season_id: number; group_id: number | null; conference_id: number };
 
 type Props = {
   seasons: Season[];
   teams: Team[];
   matches: Match[];
+  conferences: Conference[];
+  groups: Group[];
+  teamSeasons: TeamSeason[];
 };
 
-export default function MatchesManager({ seasons, teams, matches }: Props) {
+export default function MatchesManager({ seasons, teams, matches, conferences, groups, teamSeasons }: Props) {
   const activeSeason = seasons.find((s) => s.is_active);
   const [seasonId, setSeasonId] = useState(activeSeason?.id.toString() ?? "");
   const [weekFilter, setWeekFilter] = useState("");
   const [state, formAction, pending] = useActionState(createMatch, null);
+
+  const [rrConferenceId, setRrConferenceId] = useState("");
+  const [rrGroupId, setRrGroupId] = useState("");
+  const [rrState, rrFormAction, rrPending] = useActionState(generateRoundRobinSchedule, null);
+
+  const rrGroups = rrConferenceId
+    ? groups.filter((g) => g.conference_id === Number(rrConferenceId))
+    : groups;
+  const rrGroupTeamCount = rrGroupId
+    ? teamSeasons.filter((ts) => ts.season_id === Number(seasonId) && ts.group_id === Number(rrGroupId)).length
+    : 0;
 
   const teamMap = new Map(teams.map((t) => [t.id, t.team_name]));
 
@@ -145,6 +162,67 @@ export default function MatchesManager({ seasons, teams, matches }: Props) {
             </form>
             {state?.error && (
               <p className="text-red-400 text-xs mt-2">{state.error}</p>
+            )}
+          </div>
+
+          {/* Generate round robin schedule */}
+          <div>
+            <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">
+              Generate Round Robin Schedule
+            </h2>
+            <p className="text-xs text-gray-500 mb-3 max-w-xl">
+              Schedules every team in a group to play every other team once, one match per team
+              per week. Only works if that group has no matches scheduled yet this season —
+              delete existing matches first to regenerate.
+            </p>
+            <form action={rrFormAction} className="flex items-start gap-3 flex-wrap">
+              <input type="hidden" name="season_id" value={seasonId} />
+              <select
+                name="conference_id_ui"
+                value={rrConferenceId}
+                onChange={(e) => { setRrConferenceId(e.target.value); setRrGroupId(""); }}
+                className={`${selectCls} w-44`}
+              >
+                <option value="">— Conference —</option>
+                {conferences.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+              <select
+                name="group_id"
+                value={rrGroupId}
+                onChange={(e) => setRrGroupId(e.target.value)}
+                className={`${selectCls} w-44`}
+              >
+                <option value="">— Group —</option>
+                {rrGroups.map((g) => (
+                  <option key={g.id} value={g.id}>{g.name}</option>
+                ))}
+              </select>
+              <input
+                name="start_week"
+                type="number"
+                min={1}
+                defaultValue={1}
+                placeholder="Start Week"
+                className={`${inputCls} w-28`}
+              />
+              <button
+                type="submit"
+                disabled={rrPending || !rrGroupId}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors disabled:opacity-50 shrink-0"
+              >
+                {rrPending ? "Generating…" : "Generate Schedule"}
+              </button>
+            </form>
+            {rrGroupId && (
+              <p className="text-xs text-gray-600 mt-2">
+                {rrGroupTeamCount} team{rrGroupTeamCount !== 1 ? "s" : ""} in this group
+                {rrGroupTeamCount % 2 === 1 ? " — odd count, one team byes each week" : ""}.
+              </p>
+            )}
+            {rrState?.error && (
+              <p className="text-red-400 text-xs mt-2">{rrState.error}</p>
             )}
           </div>
         </>

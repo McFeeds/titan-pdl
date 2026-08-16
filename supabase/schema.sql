@@ -11,6 +11,10 @@ CREATE TABLE seasons (
   is_active    BOOLEAN     NOT NULL DEFAULT FALSE,
   point_budget INTEGER     NOT NULL DEFAULT 115,
   fa_tokens    INTEGER     NOT NULL DEFAULT 3,
+  -- 'bo3' (default) is the standard format used by every season unless an
+  -- admin opts a specific season into 'singles_doubles' (a Bo1 singles game
+  -- + a Bo3 doubles series, each worth its own win/loss).
+  match_format TEXT        NOT NULL DEFAULT 'bo3' CHECK (match_format IN ('bo3', 'singles_doubles')),
   created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -116,51 +120,61 @@ CREATE INDEX idx_rosters_conf    ON rosters (conference_id, season_id);
 
 
 -- ------------------------------------------------------------
+-- DRAFT POOLS
+-- The unit of "who drafts together, in what order, starting when" — an
+-- admin-defined set of teams, independent of conference/group (which stay
+-- purely for standings and rostering). A pool can equal one conference (the
+-- common case), one group, several groups spanning different conferences,
+-- or any hand-picked set of teams. Tracks whether a pool's draft is
+-- currently live, so the public draft board can highlight whose turn it is.
+-- ------------------------------------------------------------
+CREATE TABLE draft_pools (
+  id         SERIAL      PRIMARY KEY,
+  season_id  INTEGER     NOT NULL REFERENCES seasons(id),
+  name       TEXT        NOT NULL,
+  is_active  BOOLEAN     NOT NULL DEFAULT FALSE,
+  -- Set once, never cleared. Distinguishes "never started" (NULL) from
+  -- "started, then ended" (NOT NULL AND is_active = false) — both look like
+  -- is_active = false alone. Drives the pre-draft free-agency lock.
+  started_at TIMESTAMPTZ,
+  UNIQUE (season_id, name)
+);
+
+
+-- ------------------------------------------------------------
 -- DRAFT LOG
 -- ------------------------------------------------------------
 CREATE TABLE draft_log (
   id            SERIAL      PRIMARY KEY,
   season_id     INTEGER     NOT NULL REFERENCES seasons(id),
+  -- Pick numbers are sequenced per pool, not per conference (a pool can
+  -- span multiple conferences).
+  draft_pool_id INTEGER     NOT NULL REFERENCES draft_pools(id),
+  -- Captured from the picking team's own conference_id at pick time — still
+  -- drives the per-conference pokemon-uniqueness rule below.
   conference_id INTEGER     NOT NULL REFERENCES conferences(id),
   pick_number   INTEGER     NOT NULL,
   team_id       INTEGER     NOT NULL REFERENCES teams(id),
   pokemon_id    INTEGER     NOT NULL REFERENCES pokemon(id),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  -- Each pick number is unique within a conference + season
-  UNIQUE (season_id, conference_id, pick_number),
+  -- Each pick number is unique within a draft pool
+  UNIQUE (draft_pool_id, pick_number),
   -- A pokemon can only be drafted once per conference per season
   UNIQUE (season_id, conference_id, pokemon_id)
 );
 
 CREATE INDEX idx_draft_log_season_conf ON draft_log (season_id, conference_id);
+CREATE INDEX idx_draft_log_pool        ON draft_log (draft_pool_id);
 
 
 -- ------------------------------------------------------------
--- CONFERENCE DRAFTS
--- Tracks whether a conference's draft is currently live for a season,
--- so the public draft board can highlight whose turn it is.
+-- CLOSE DRAFT POOL IF ALL ENDED
+-- If every team in a pool has now ended their draft, flip the pool to
+-- inactive (started_at stays set, so it flows into free agency — same end
+-- state as the admin's End Draft toggle).
 -- ------------------------------------------------------------
-CREATE TABLE conference_drafts (
-  season_id     INTEGER NOT NULL REFERENCES seasons(id),
-  conference_id INTEGER NOT NULL REFERENCES conferences(id),
-  is_active     BOOLEAN NOT NULL DEFAULT FALSE,
-  -- Set once, never cleared. Distinguishes "never started" (NULL) from
-  -- "started, then ended" (NOT NULL AND is_active = false) — both look like
-  -- is_active = false alone. Drives the pre-draft free-agency lock.
-  started_at    TIMESTAMPTZ,
-  PRIMARY KEY (season_id, conference_id)
-);
-
-
--- ------------------------------------------------------------
--- CLOSE CONFERENCE DRAFT IF ALL ENDED
--- If every team in a conference has now ended their draft, flip the
--- conference's draft to inactive (started_at stays set, so it flows into
--- free agency — same end state as the admin's End Draft toggle).
--- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION close_conference_draft_if_all_ended(
-  p_season_id     INTEGER,
-  p_conference_id INTEGER
+CREATE OR REPLACE FUNCTION close_draft_pool_if_all_ended(
+  p_draft_pool_id INTEGER
 ) RETURNS VOID
 LANGUAGE plpgsql
 AS $$
@@ -168,11 +182,11 @@ DECLARE
   v_remaining INTEGER;
 BEGIN
   SELECT COUNT(*) INTO v_remaining FROM team_seasons
-    WHERE season_id = p_season_id AND conference_id = p_conference_id AND draft_ended_at IS NULL;
+    WHERE draft_pool_id = p_draft_pool_id AND draft_ended_at IS NULL;
 
   IF v_remaining = 0 THEN
-    UPDATE conference_drafts SET is_active = FALSE
-      WHERE season_id = p_season_id AND conference_id = p_conference_id AND is_active = TRUE;
+    UPDATE draft_pools SET is_active = FALSE
+      WHERE id = p_draft_pool_id AND is_active = TRUE;
   END IF;
 END;
 $$;
@@ -180,17 +194,19 @@ $$;
 
 -- ------------------------------------------------------------
 -- AUTO END INELIGIBLE TEAMS
--- Sweeps every not-yet-ended team in the conference on every draft-state
--- change and ends anyone out of room or unable to afford anything left in
--- the pool, regardless of whose turn it technically is. Needed because a
--- team can become stuck through no pick of their own (another team drafts
--- away the last pokemon they could afford while it wasn't their turn) --
--- and since they can't submit a pick either, nothing else would ever
--- trigger the check for them.
+-- Sweeps every not-yet-ended team in the pool on every draft-state change
+-- and ends anyone out of room or unable to afford anything left in their
+-- own conference's pool, regardless of whose turn it technically is. Needed
+-- because a team can become stuck through no pick of their own (another
+-- team drafts away the last pokemon they could afford while it wasn't their
+-- turn) -- and since they can't submit a pick either, nothing else would
+-- ever trigger the check for them. The affordability check uses each row's
+-- own ts.conference_id (not a single pool-wide value), since availability
+-- stays per-conference even when a pool spans multiple conferences.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION auto_end_ineligible_teams(
   p_season_id     INTEGER,
-  p_conference_id INTEGER,
+  p_draft_pool_id INTEGER,
   p_max_slots     INTEGER DEFAULT 12
 ) RETURNS VOID
 LANGUAGE plpgsql
@@ -202,8 +218,7 @@ BEGIN
 
   UPDATE team_seasons ts
   SET draft_ended_at = NOW()
-  WHERE ts.season_id = p_season_id
-    AND ts.conference_id = p_conference_id
+  WHERE ts.draft_pool_id = p_draft_pool_id
     AND ts.draft_ended_at IS NULL
     AND (
       (SELECT COUNT(*) FROM rosters r WHERE r.team_id = ts.team_id AND r.season_id = p_season_id) >= p_max_slots
@@ -217,12 +232,12 @@ BEGIN
         )
         AND NOT EXISTS (
           SELECT 1 FROM rosters r2
-          WHERE r2.pokemon_id = p.id AND r2.conference_id = p_conference_id AND r2.season_id = p_season_id
+          WHERE r2.pokemon_id = p.id AND r2.conference_id = ts.conference_id AND r2.season_id = p_season_id
         )
       )
     );
 
-  PERFORM close_conference_draft_if_all_ended(p_season_id, p_conference_id);
+  PERFORM close_draft_pool_if_all_ended(p_draft_pool_id);
 END;
 $$;
 
@@ -240,8 +255,7 @@ $$;
 -- Mirrors computeOnClockTeamId() in src/lib/draft.ts — keep both in sync.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION compute_on_clock_team(
-  p_season_id     INTEGER,
-  p_conference_id INTEGER,
+  p_draft_pool_id INTEGER,
   p_max_slots     INTEGER
 ) RETURNS INTEGER
 LANGUAGE plpgsql
@@ -253,10 +267,10 @@ BEGIN
   FROM (
     SELECT ts.team_id, ts.draft_position,
            (SELECT COUNT(*) FROM draft_log dl
-              WHERE dl.team_id = ts.team_id AND dl.season_id = p_season_id AND dl.conference_id = p_conference_id
+              WHERE dl.team_id = ts.team_id AND dl.draft_pool_id = p_draft_pool_id
            ) AS picks_made
     FROM team_seasons ts
-    WHERE ts.season_id = p_season_id AND ts.conference_id = p_conference_id
+    WHERE ts.draft_pool_id = p_draft_pool_id
       AND ts.draft_position IS NOT NULL AND ts.draft_ended_at IS NULL
   ) eligible
   WHERE picks_made < p_max_slots
@@ -282,20 +296,20 @@ CREATE OR REPLACE FUNCTION end_team_draft(
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_conference_id INTEGER;
+  v_draft_pool_id INTEGER;
 BEGIN
-  SELECT conference_id INTO v_conference_id FROM team_seasons
+  SELECT draft_pool_id INTO v_draft_pool_id FROM team_seasons
     WHERE team_id = p_team_id AND season_id = p_season_id;
-  IF v_conference_id IS NULL THEN
-    RAISE EXCEPTION 'Team has no conference assigned this season';
+  IF v_draft_pool_id IS NULL THEN
+    RAISE EXCEPTION 'Team has no draft pool assigned this season';
   END IF;
 
-  PERFORM pg_advisory_xact_lock(p_season_id, v_conference_id);
+  PERFORM pg_advisory_xact_lock(p_season_id, v_draft_pool_id);
 
   UPDATE team_seasons SET draft_ended_at = COALESCE(draft_ended_at, NOW())
     WHERE team_id = p_team_id AND season_id = p_season_id;
 
-  PERFORM auto_end_ineligible_teams(p_season_id, v_conference_id);
+  PERFORM auto_end_ineligible_teams(p_season_id, v_draft_pool_id);
 END;
 $$;
 
@@ -314,14 +328,14 @@ CREATE OR REPLACE FUNCTION reactivate_team_draft(
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_conference_id INTEGER;
+  v_draft_pool_id INTEGER;
 BEGIN
   UPDATE team_seasons SET draft_ended_at = NULL
     WHERE team_id = p_team_id AND season_id = p_season_id
-    RETURNING conference_id INTO v_conference_id;
+    RETURNING draft_pool_id INTO v_draft_pool_id;
 
-  IF v_conference_id IS NOT NULL THEN
-    PERFORM auto_end_ineligible_teams(p_season_id, v_conference_id);
+  IF v_draft_pool_id IS NOT NULL THEN
+    PERFORM auto_end_ineligible_teams(p_season_id, v_draft_pool_id);
   END IF;
 END;
 $$;
@@ -330,14 +344,17 @@ $$;
 -- ------------------------------------------------------------
 -- REVERT DRAFT TO PICK
 -- Deletes every pick (and its roster entry) logged after the given pick
--- number for a conference. Pick numbers stay contiguous since only the
--- tail is ever trimmed, so no renumbering is needed. Does not touch
--- draft_ended_at or conference_drafts.is_active — those are separate,
--- already-existing admin controls to pair with a revert if needed.
+-- number for a draft pool. Pick numbers stay contiguous since only the
+-- tail is ever trimmed, so no renumbering is needed. Roster rows are
+-- matched on the exact (pokemon_id, conference_id, season_id) triple from
+-- the reverted picks, which stays precise even when the pool spans multiple
+-- conferences. Does not touch draft_ended_at or draft_pools.is_active —
+-- those are separate, already-existing admin controls to pair with a
+-- revert if needed.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION revert_draft_to_pick(
   p_season_id              INTEGER,
-  p_conference_id          INTEGER,
+  p_draft_pool_id          INTEGER,
   p_keep_up_to_pick_number INTEGER
 ) RETURNS INTEGER
 LANGUAGE plpgsql
@@ -345,18 +362,18 @@ AS $$
 DECLARE
   v_deleted INTEGER;
 BEGIN
-  PERFORM pg_advisory_xact_lock(p_season_id, p_conference_id);
+  PERFORM pg_advisory_xact_lock(p_season_id, p_draft_pool_id);
 
-  DELETE FROM rosters
-  WHERE season_id = p_season_id AND conference_id = p_conference_id
-    AND pokemon_id IN (
-      SELECT pokemon_id FROM draft_log
-      WHERE season_id = p_season_id AND conference_id = p_conference_id
-        AND pick_number > p_keep_up_to_pick_number
-    );
+  DELETE FROM rosters r
+  USING draft_log dl
+  WHERE dl.draft_pool_id = p_draft_pool_id
+    AND dl.pick_number > p_keep_up_to_pick_number
+    AND r.pokemon_id = dl.pokemon_id
+    AND r.conference_id = dl.conference_id
+    AND r.season_id = dl.season_id;
 
   DELETE FROM draft_log
-  WHERE season_id = p_season_id AND conference_id = p_conference_id
+  WHERE draft_pool_id = p_draft_pool_id
     AND pick_number > p_keep_up_to_pick_number;
   GET DIAGNOSTICS v_deleted = ROW_COUNT;
 
@@ -369,15 +386,16 @@ $$;
 -- RECORD DRAFT PICK
 -- Atomically adds a pokemon to a team's roster and appends the next
 -- sequential pick_number to draft_log. An advisory lock keyed on
--- (season_id, conference_id) keeps concurrent picks from racing on
--- the pick_number computation. Afterward sweeps the whole conference via
--- auto_end_ineligible_teams() so any team out of room or budget -- not just
--- the picker -- is skipped going forward and close_conference_draft_if_all_ended()
--- can actually see the draft finish.
+-- (season_id, draft_pool_id) keeps concurrent picks from racing on the
+-- pick_number computation. Resolves the team's own conference_id for the
+-- rosters insert and the per-conference draft_log uniqueness. Afterward
+-- sweeps the whole pool via auto_end_ineligible_teams() so any team out of
+-- room or budget -- not just the picker -- is skipped going forward and
+-- close_draft_pool_if_all_ended() can actually see the draft finish.
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION record_draft_pick(
   p_season_id     INTEGER,
-  p_conference_id INTEGER,
+  p_draft_pool_id INTEGER,
   p_team_id       INTEGER,
   p_pokemon_id    INTEGER,
   p_max_slots     INTEGER DEFAULT 12
@@ -385,21 +403,28 @@ CREATE OR REPLACE FUNCTION record_draft_pick(
 LANGUAGE plpgsql
 AS $$
 DECLARE
-  v_pick_number INTEGER;
+  v_conference_id INTEGER;
+  v_pick_number   INTEGER;
 BEGIN
-  PERFORM pg_advisory_xact_lock(p_season_id, p_conference_id);
+  PERFORM pg_advisory_xact_lock(p_season_id, p_draft_pool_id);
+
+  SELECT conference_id INTO v_conference_id FROM team_seasons
+    WHERE team_id = p_team_id AND season_id = p_season_id;
+  IF v_conference_id IS NULL THEN
+    RAISE EXCEPTION 'Team has no conference assigned this season';
+  END IF;
 
   INSERT INTO rosters (pokemon_id, conference_id, season_id, team_id)
-  VALUES (p_pokemon_id, p_conference_id, p_season_id, p_team_id);
+  VALUES (p_pokemon_id, v_conference_id, p_season_id, p_team_id);
 
   SELECT COALESCE(MAX(pick_number), 0) + 1 INTO v_pick_number
   FROM draft_log
-  WHERE season_id = p_season_id AND conference_id = p_conference_id;
+  WHERE draft_pool_id = p_draft_pool_id;
 
-  INSERT INTO draft_log (season_id, conference_id, pick_number, team_id, pokemon_id)
-  VALUES (p_season_id, p_conference_id, v_pick_number, p_team_id, p_pokemon_id);
+  INSERT INTO draft_log (season_id, draft_pool_id, conference_id, pick_number, team_id, pokemon_id)
+  VALUES (p_season_id, p_draft_pool_id, v_conference_id, v_pick_number, p_team_id, p_pokemon_id);
 
-  PERFORM auto_end_ineligible_teams(p_season_id, p_conference_id, p_max_slots);
+  PERFORM auto_end_ineligible_teams(p_season_id, p_draft_pool_id, p_max_slots);
 
   RETURN v_pick_number;
 END;
@@ -407,28 +432,30 @@ $$;
 
 
 -- ------------------------------------------------------------
--- SET CONFERENCE DRAFT ACTIVE
--- Stamps started_at exactly once, atomically, the first time a conference's
--- draft is activated. Used by the admin panel instead of a raw upsert.
--- Sweeps once on activation, in case the draft is being (re)started with a
--- team already unable to make any legal pick.
+-- SET DRAFT POOL ACTIVE
+-- Stamps started_at exactly once, atomically, the first time a pool's
+-- draft is activated. Used by the admin panel. Pools are admin-created rows
+-- (unlike the old conference_drafts, which upserted lazily), so this is a
+-- plain UPDATE. Sweeps once on activation, in case the draft is being
+-- (re)started with a team already unable to make any legal pick.
 -- ------------------------------------------------------------
-CREATE OR REPLACE FUNCTION set_conference_draft_active(
-  p_season_id     INTEGER,
-  p_conference_id INTEGER,
+CREATE OR REPLACE FUNCTION set_draft_pool_active(
+  p_draft_pool_id INTEGER,
   p_is_active     BOOLEAN
 ) RETURNS VOID
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  v_season_id INTEGER;
 BEGIN
-  INSERT INTO conference_drafts (season_id, conference_id, is_active, started_at)
-  VALUES (p_season_id, p_conference_id, p_is_active, CASE WHEN p_is_active THEN NOW() ELSE NULL END)
-  ON CONFLICT (season_id, conference_id) DO UPDATE
-  SET is_active  = EXCLUDED.is_active,
-      started_at = COALESCE(conference_drafts.started_at, EXCLUDED.started_at);
+  UPDATE draft_pools
+  SET is_active  = p_is_active,
+      started_at = COALESCE(started_at, CASE WHEN p_is_active THEN NOW() END)
+  WHERE id = p_draft_pool_id
+  RETURNING season_id INTO v_season_id;
 
-  IF p_is_active THEN
-    PERFORM auto_end_ineligible_teams(p_season_id, p_conference_id);
+  IF p_is_active AND v_season_id IS NOT NULL THEN
+    PERFORM auto_end_ineligible_teams(v_season_id, p_draft_pool_id);
   END IF;
 END;
 $$;
@@ -440,15 +467,15 @@ $$;
 -- re-validates: draft is active, caller hasn't already ended their draft,
 -- it's this team's turn (compute_on_clock_team — mirrors
 -- computeOnClockTeamId() in src/lib/draft.ts, keep both in sync), pokemon
--- isn't already drafted, roster has room, and the pick fits the season's
--- point budget. Afterward sweeps the whole conference via
--- auto_end_ineligible_teams() so any team out of room or budget -- not just
--- the picker -- is skipped going forward. record_draft_pick gets the same
--- treatment but skips the turn/ended checks (admin override).
+-- isn't already drafted in the team's own conference, roster has room, and
+-- the pick fits the season's point budget. Afterward sweeps the whole pool
+-- via auto_end_ineligible_teams() so any team out of room or budget -- not
+-- just the picker -- is skipped going forward. record_draft_pick gets the
+-- same treatment but skips the turn/ended checks (admin override).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION submit_draft_pick(
   p_season_id     INTEGER,
-  p_conference_id INTEGER,
+  p_draft_pool_id INTEGER,
   p_team_id       INTEGER,
   p_pokemon_id    INTEGER,
   p_max_slots     INTEGER
@@ -458,6 +485,7 @@ AS $$
 DECLARE
   v_is_active       BOOLEAN;
   v_draft_ended_at  TIMESTAMPTZ;
+  v_conference_id   INTEGER;
   v_point_budget    INTEGER;
   v_point_value     INTEGER;
   v_spent           INTEGER;
@@ -465,23 +493,25 @@ DECLARE
   v_next_pick       INTEGER;
   v_on_clock_team   INTEGER;
 BEGIN
-  PERFORM pg_advisory_xact_lock(p_season_id, p_conference_id);
+  PERFORM pg_advisory_xact_lock(p_season_id, p_draft_pool_id);
 
-  SELECT is_active INTO v_is_active FROM conference_drafts
-    WHERE season_id = p_season_id AND conference_id = p_conference_id;
+  SELECT is_active INTO v_is_active FROM draft_pools WHERE id = p_draft_pool_id;
   IF NOT COALESCE(v_is_active, FALSE) THEN
-    RAISE EXCEPTION 'The draft is not currently active for your conference';
+    RAISE EXCEPTION 'The draft is not currently active for your pool';
   END IF;
 
-  SELECT draft_ended_at INTO v_draft_ended_at FROM team_seasons
+  SELECT draft_ended_at, conference_id INTO v_draft_ended_at, v_conference_id FROM team_seasons
     WHERE team_id = p_team_id AND season_id = p_season_id;
   IF v_draft_ended_at IS NOT NULL THEN
     RAISE EXCEPTION 'You have ended your draft';
   END IF;
+  IF v_conference_id IS NULL THEN
+    RAISE EXCEPTION 'Team has no conference assigned this season';
+  END IF;
 
   IF EXISTS (
     SELECT 1 FROM rosters
-    WHERE pokemon_id = p_pokemon_id AND conference_id = p_conference_id AND season_id = p_season_id
+    WHERE pokemon_id = p_pokemon_id AND conference_id = v_conference_id AND season_id = p_season_id
   ) THEN
     RAISE EXCEPTION 'That pokemon has already been drafted';
   END IF;
@@ -502,7 +532,7 @@ BEGIN
     RAISE EXCEPTION 'Not enough points remaining';
   END IF;
 
-  v_on_clock_team := compute_on_clock_team(p_season_id, p_conference_id, p_max_slots);
+  v_on_clock_team := compute_on_clock_team(p_draft_pool_id, p_max_slots);
   IF v_on_clock_team IS NULL THEN
     RAISE EXCEPTION 'The draft is complete';
   END IF;
@@ -512,14 +542,14 @@ BEGIN
 
   SELECT COALESCE(MAX(pick_number), 0) + 1 INTO v_next_pick
   FROM draft_log
-  WHERE season_id = p_season_id AND conference_id = p_conference_id;
+  WHERE draft_pool_id = p_draft_pool_id;
 
   INSERT INTO rosters (pokemon_id, conference_id, season_id, team_id)
-    VALUES (p_pokemon_id, p_conference_id, p_season_id, p_team_id);
-  INSERT INTO draft_log (season_id, conference_id, pick_number, team_id, pokemon_id)
-    VALUES (p_season_id, p_conference_id, v_next_pick, p_team_id, p_pokemon_id);
+    VALUES (p_pokemon_id, v_conference_id, p_season_id, p_team_id);
+  INSERT INTO draft_log (season_id, draft_pool_id, conference_id, pick_number, team_id, pokemon_id)
+    VALUES (p_season_id, p_draft_pool_id, v_conference_id, v_next_pick, p_team_id, p_pokemon_id);
 
-  PERFORM auto_end_ineligible_teams(p_season_id, p_conference_id, p_max_slots);
+  PERFORM auto_end_ineligible_teams(p_season_id, p_draft_pool_id, p_max_slots);
 
   RETURN v_next_pick;
 END;
@@ -671,6 +701,10 @@ CREATE TABLE team_seasons (
   season_id      INTEGER NOT NULL REFERENCES seasons(id),
   conference_id  INTEGER NOT NULL REFERENCES conferences(id),
   group_id       INTEGER REFERENCES groups(id),
+  -- Which draft pool this team drafts in this season — independent of
+  -- conference/group, which stay purely for standings and rostering. See
+  -- DRAFT POOLS below.
+  draft_pool_id  INTEGER REFERENCES draft_pools(id),
   draft_position INTEGER,
   -- Set once (never cleared automatically) when a team's draft ends —
   -- voluntarily, automatically (out of affordable picks), or by admin
@@ -722,15 +756,25 @@ CREATE INDEX idx_matches_away_team   ON matches (away_team_id);
 
 
 -- ------------------------------------------------------------
--- MATCH GAMES  (individual games within a BO3, up to 3)
+-- MATCH GAMES  (individual games within a match)
+--
+-- For 'bo3' seasons this is a single up-to-3-game doubles series
+-- (game_type defaults to 'doubles', game_number 1-3). For 'singles_doubles'
+-- seasons a match holds two independent components: one 'singles' game
+-- (always game_number 1) and up to three 'doubles' games (game_number 1-3).
 -- ------------------------------------------------------------
 CREATE TABLE match_games (
   id             SERIAL  PRIMARY KEY,
   match_id       INTEGER NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-  game_number    INTEGER NOT NULL CHECK (game_number BETWEEN 1 AND 3),
+  game_number    INTEGER NOT NULL,
+  game_type      TEXT    NOT NULL DEFAULT 'doubles' CHECK (game_type IN ('singles', 'doubles')),
   winner_team_id INTEGER REFERENCES teams(id),
   replay_url     TEXT,
-  UNIQUE (match_id, game_number)
+  CHECK (
+    (game_type = 'singles' AND game_number = 1) OR
+    (game_type = 'doubles' AND game_number BETWEEN 1 AND 3)
+  ),
+  UNIQUE (match_id, game_type, game_number)
 );
 
 CREATE INDEX idx_match_games_match ON match_games (match_id);
@@ -832,7 +876,7 @@ BEGIN
   DELETE FROM transactions WHERE true;
   DELETE FROM draft_log WHERE true;
   DELETE FROM rosters WHERE true;
-  DELETE FROM conference_drafts WHERE true;
+  UPDATE draft_pools SET is_active = FALSE, started_at = NULL WHERE true;
   UPDATE team_seasons SET draft_ended_at = NULL, fa_tokens_adjustment = 0 WHERE true;
 END;
 $$;
@@ -854,7 +898,7 @@ ALTER TABLE groups           ENABLE ROW LEVEL SECURITY;
 ALTER TABLE teams            ENABLE ROW LEVEL SECURITY;
 ALTER TABLE rosters          ENABLE ROW LEVEL SECURITY;
 ALTER TABLE draft_log        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE conference_drafts   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE draft_pools         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transactions        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE transaction_items   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE team_seasons        ENABLE ROW LEVEL SECURITY;
@@ -872,7 +916,7 @@ CREATE POLICY "Public read" ON groups             FOR SELECT USING (true);
 CREATE POLICY "Public read" ON teams              FOR SELECT USING (true);
 CREATE POLICY "Public read" ON rosters            FOR SELECT USING (true);
 CREATE POLICY "Public read" ON draft_log          FOR SELECT USING (true);
-CREATE POLICY "Public read" ON conference_drafts  FOR SELECT USING (true);
+CREATE POLICY "Public read" ON draft_pools        FOR SELECT USING (true);
 CREATE POLICY "Public read" ON transactions       FOR SELECT USING (true);
 CREATE POLICY "Public read" ON transaction_items  FOR SELECT USING (true);
 CREATE POLICY "Public read" ON team_seasons       FOR SELECT USING (true);
@@ -886,4 +930,4 @@ CREATE POLICY "Public read" ON match_game_pokemon FOR SELECT USING (true);
 -- REALTIME
 -- Tables the client subscribes to via postgres_changes.
 -- ============================================================
-ALTER PUBLICATION supabase_realtime ADD TABLE rosters, draft_log, conference_drafts, team_seasons;
+ALTER PUBLICATION supabase_realtime ADD TABLE rosters, draft_log, draft_pools, team_seasons;

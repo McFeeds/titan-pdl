@@ -33,12 +33,26 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/team-not-found?username=unknown`);
   }
 
-  const { data: membership } = await supabase
-    .from("team_members")
-    .select("team_id")
-    .ilike("discord_id", discordUsername)
+  // Scoped to the active season — a player who changed teams between
+  // seasons has one team_members row per season, and an unscoped lookup
+  // could match a stale row from a past season instead of reflecting
+  // whether they're actually on a team right now.
+  const { data: activeSeason } = await supabase
+    .from("seasons")
+    .select("id")
+    .eq("is_active", true)
     .limit(1)
-    .single();
+    .maybeSingle();
+
+  const { data: membership } = activeSeason
+    ? await supabase
+        .from("team_members")
+        .select("team_id")
+        .ilike("discord_id", discordUsername)
+        .eq("season_id", activeSeason.id)
+        .limit(1)
+        .maybeSingle()
+    : { data: null };
 
   if (membership) {
     return NextResponse.redirect(`${origin}/my-team`);

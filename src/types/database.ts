@@ -2,12 +2,15 @@
 // Row types — one interface per table, matching column names exactly.
 // ============================================================
 
+export type MatchFormat = "bo3" | "singles_doubles";
+
 export interface Season {
   id: number;
   name: string;
   is_active: boolean;
   point_budget: number;
   fa_tokens: number;
+  match_format: MatchFormat;
   created_at: string;
 }
 
@@ -64,6 +67,8 @@ export interface TeamSeason {
   season_id: number;
   conference_id: number;
   group_id: number | null;
+  // Which draft pool this team drafts in — independent of conference/group.
+  draft_pool_id: number | null;
   draft_position: number | null;
   draft_ended_at: string | null;
   fa_tokens_adjustment: number;
@@ -87,10 +92,13 @@ export interface Match {
   played_at: string | null;
 }
 
+export type GameType = "singles" | "doubles";
+
 export interface MatchGame {
   id: number;
   match_id: number;
   game_number: number;
+  game_type: GameType;
   winner_team_id: number | null;
   replay_url: string | null;
 }
@@ -115,6 +123,7 @@ export interface Roster {
 export interface DraftLog {
   id: number;
   season_id: number;
+  draft_pool_id: number;
   conference_id: number;
   pick_number: number;
   team_id: number;
@@ -122,9 +131,12 @@ export interface DraftLog {
   created_at: string;
 }
 
-export interface ConferenceDraft {
+// A set of teams that draft together, in a shared turn order — independent
+// of conference/group, which stay purely for standings and rostering.
+export interface DraftPool {
+  id: number;
   season_id: number;
-  conference_id: number;
+  name: string;
   is_active: boolean;
   started_at: string | null;
 }

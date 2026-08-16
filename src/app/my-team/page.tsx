@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { computeOnClockTeamId } from "@/lib/draft";
+import { getMatchComponents, recordFromComponents } from "@/lib/matchRecord";
 import type { RosterPokemon } from "@/types/database";
 import MyTeamView, { type DraftMode } from "./MyTeamView";
 
@@ -38,7 +39,7 @@ export default async function MyTeamPage() {
   // Active season
   const { data: activeSeason } = await supabase
     .from("seasons")
-    .select("id, name, point_budget, fa_tokens")
+    .select("id, name, point_budget, fa_tokens, match_format")
     .eq("is_active", true)
     .limit(1)
     .maybeSingle();
@@ -85,7 +86,7 @@ export default async function MyTeamPage() {
 
     supabase
       .from("matches")
-      .select("id, week_number, home_team_id, away_team_id, played_at, match_games(id, game_number, winner_team_id)")
+      .select("id, week_number, home_team_id, away_team_id, played_at, match_games(id, game_number, game_type, winner_team_id)")
       .eq("season_id", activeSeason.id)
       .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
       .order("week_number"),
@@ -98,7 +99,7 @@ export default async function MyTeamPage() {
 
     supabase
       .from("team_seasons")
-      .select("conference_id, draft_position, draft_ended_at, fa_tokens_adjustment")
+      .select("conference_id, draft_pool_id, draft_position, draft_ended_at, fa_tokens_adjustment")
       .eq("team_id", teamId)
       .eq("season_id", activeSeason.id)
       .maybeSingle(),
@@ -113,39 +114,44 @@ export default async function MyTeamPage() {
     supabase.from("transaction_items").select("transaction_id, team_id, action, pokemon_id"),
   ]);
 
-  // Conference-scoped data (draft state, roster-wide pokemon, team count)
-  // needs the conference_id resolved above, so it's a second phase.
+  // Conference-scoped data (roster-wide pokemon pool) needs conference_id;
+  // draft state and turn order are now scoped by draft_pool_id instead —
+  // independent of conference, since a pool can span multiple conferences.
   const conferenceId = teamSeason?.conference_id ?? null;
+  const draftPoolId = teamSeason?.draft_pool_id ?? null;
   const [
-    { data: draftState },
+    { data: draftPool },
     { data: conferenceRosters },
-    { data: conferenceTeamSeasons },
+    { data: poolTeamSeasons },
     { data: draftLog },
-  ] = conferenceId
-    ? await Promise.all([
-        supabase
-          .from("conference_drafts")
+  ] = await Promise.all([
+    draftPoolId
+      ? supabase
+          .from("draft_pools")
           .select("is_active, started_at")
-          .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId)
-          .maybeSingle(),
-        supabase
+          .eq("id", draftPoolId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    conferenceId
+      ? supabase
           .from("rosters")
           .select("pokemon_id")
           .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId),
-        supabase
+          .eq("conference_id", conferenceId)
+      : Promise.resolve({ data: null }),
+    draftPoolId
+      ? supabase
           .from("team_seasons")
           .select("team_id, draft_position, draft_ended_at")
-          .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId),
-        supabase
+          .eq("draft_pool_id", draftPoolId)
+      : Promise.resolve({ data: null }),
+    draftPoolId
+      ? supabase
           .from("draft_log")
           .select("team_id")
-          .eq("season_id", activeSeason.id)
-          .eq("conference_id", conferenceId),
-      ])
-    : [{ data: null }, { data: null }, { data: null }, { data: null }];
+          .eq("draft_pool_id", draftPoolId)
+      : Promise.resolve({ data: null }),
+  ]);
 
   // Collect opponent team IDs and fetch them in one query
   const opponentIds = new Set<number>();
@@ -179,15 +185,32 @@ export default async function MyTeamPage() {
     0
   );
 
-  // Build schedule entries
+  // Build schedule entries — win/loss per matchup is format-aware (see
+  // src/lib/matchRecord.ts): a 'bo3' matchup is one series decided at 2
+  // games, a 'singles_doubles' matchup is a singles + a doubles component
+  // each contributing its own win/loss.
+  const matchFormat = activeSeason.match_format;
   const schedule = (rawMatches ?? []).map((m: any) => {
     const isHome = m.home_team_id === teamId;
     const opponentId: number = isHome ? m.away_team_id : m.home_team_id;
     const games: any[] = m.match_games ?? [];
-    const myGamesWon = games.filter((g) => g.winner_team_id === teamId).length;
-    const oppGamesWon = games.filter(
-      (g) => g.winner_team_id !== null && g.winner_team_id !== teamId
-    ).length;
+
+    const components = getMatchComponents(games, matchFormat, m.home_team_id);
+    const { homeWins, homeLosses, awayWins, awayLosses } = recordFromComponents(components);
+    const myWins = isHome ? homeWins : awayWins;
+    const oppWins = isHome ? awayWins : homeWins;
+    const myLosses = isHome ? homeLosses : awayLosses;
+    const oppLosses = isHome ? awayLosses : homeLosses;
+    const decided = components.every((c) => c.decided);
+
+    // Per-component breakdown for the "singles_doubles" tooltip — from this
+    // team's perspective, e.g. "Singles: W", "Doubles: —" (not decided yet).
+    const componentBreakdown: { label: string; result: "W" | "L" | "—" }[] = components.map((c) => {
+      const label = c.type === "singles" ? "Singles" : c.type === "doubles" ? "Doubles" : "Series";
+      const result: "W" | "L" | "—" = !c.decided ? "—" : (c.winner === "home") === isHome ? "W" : "L";
+      return { label, result };
+    });
+
     return {
       id: m.id as number,
       week_number: m.week_number as number,
@@ -198,9 +221,13 @@ export default async function MyTeamPage() {
         team_name: "TBD",
         logo_url: null,
       },
-      my_games_won: myGamesWon,
-      opp_games_won: oppGamesWon,
-      total_games: games.length,
+      my_games_won: myWins,
+      opp_games_won: oppWins,
+      my_losses: myLosses,
+      opp_losses: oppLosses,
+      decided,
+      has_games: games.length > 0,
+      component_breakdown: componentBreakdown,
     };
   });
 
@@ -208,8 +235,8 @@ export default async function MyTeamPage() {
 
   // Draft mode: never started -> locked, active -> drafting, ended -> free agency
   let draftMode: DraftMode = "pre_draft";
-  if (draftState?.is_active) draftMode = "drafting";
-  else if (draftState?.started_at) draftMode = "free_agency";
+  if (draftPool?.is_active) draftMode = "drafting";
+  else if (draftPool?.started_at) draftMode = "free_agency";
 
   // Undrafted pokemon in this team's conference, for the add picker — also
   // excludes anything this team has already dropped this season, since
@@ -236,12 +263,12 @@ export default async function MyTeamPage() {
   // uses the same skip-aware turn math as the public draft board, so a
   // team that ended early is correctly never shown as on the clock.
   let isOnClock = false;
-  if (draftMode === "drafting" && conferenceTeamSeasons) {
+  if (draftMode === "drafting" && poolTeamSeasons) {
     const picksMadeByTeam = new Map<number, number>();
     for (const row of draftLog ?? []) {
       picksMadeByTeam.set(row.team_id, (picksMadeByTeam.get(row.team_id) ?? 0) + 1);
     }
-    const teamStates = conferenceTeamSeasons.map((ts) => ({
+    const teamStates = poolTeamSeasons.map((ts) => ({
       id: ts.team_id,
       draftPosition: ts.draft_position,
       draftEnded: ts.draft_ended_at !== null,
@@ -270,9 +297,10 @@ export default async function MyTeamPage() {
       schedule={schedule}
       pokemonStats={pokemonStats ?? []}
       totalGamesPlayed={totalGamesPlayed}
+      matchFormat={matchFormat}
       record={{
-          wins: schedule.filter((e) => e.my_games_won >= 2).length,
-          losses: schedule.filter((e) => e.opp_games_won >= 2).length,
+          wins: schedule.reduce((sum, e) => sum + e.my_games_won, 0),
+          losses: schedule.reduce((sum, e) => sum + e.opp_games_won, 0),
         }}
       draftMode={draftMode}
       isOnClock={isOnClock}

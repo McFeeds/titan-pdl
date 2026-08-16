@@ -20,19 +20,24 @@ export async function addRosterEntry(prevState: State, formData: FormData): Prom
 
   const admin = createAdminClient();
 
-  const { data: draftState } = await admin
-    .from("conference_drafts")
-    .select("is_active")
+  const { data: teamSeason } = await admin
+    .from("team_seasons")
+    .select("draft_pool_id")
     .eq("season_id", season_id)
-    .eq("conference_id", conference_id)
+    .eq("team_id", team_id)
     .maybeSingle();
 
-  if (draftState?.is_active) {
-    // Draft is live for this conference — record it as a pick so the
+  const draftPoolId = teamSeason?.draft_pool_id ?? null;
+  const { data: draftPool } = draftPoolId
+    ? await admin.from("draft_pools").select("is_active").eq("id", draftPoolId).maybeSingle()
+    : { data: null };
+
+  if (draftPool?.is_active) {
+    // Draft is live for this team's pool — record it as a pick so the
     // public board's turn tracker advances, in addition to the roster add.
     const { error } = await admin.rpc("record_draft_pick", {
       p_season_id: season_id,
-      p_conference_id: conference_id,
+      p_draft_pool_id: draftPoolId,
       p_team_id: team_id,
       p_pokemon_id: pokemon_id,
       p_max_slots: DRAFT_SLOT_COUNT,
@@ -74,70 +79,6 @@ export async function removeRosterEntry(formData: FormData) {
     .eq("pokemon_id", pokemon_id);
 
   revalidatePath("/admin/rosters");
-}
-
-export async function setDraftActive(seasonId: number, conferenceId: number, isActive: boolean) {
-  await requireAdmin();
-
-  const admin = createAdminClient();
-  const { error } = await admin.rpc("set_conference_draft_active", {
-    p_season_id: seasonId,
-    p_conference_id: conferenceId,
-    p_is_active: isActive,
-  });
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/rosters");
-}
-
-export async function forceEndTeamDraft(seasonId: number, teamId: number) {
-  await requireAdmin();
-
-  const admin = createAdminClient();
-  const { error } = await admin.rpc("end_team_draft", {
-    p_season_id: seasonId,
-    p_team_id: teamId,
-  });
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/rosters");
-  revalidatePath("/draft-pools");
-  revalidatePath("/my-team");
-}
-
-export async function reactivateTeamDraft(seasonId: number, teamId: number) {
-  await requireAdmin();
-
-  const admin = createAdminClient();
-  const { error } = await admin.rpc("reactivate_team_draft", {
-    p_season_id: seasonId,
-    p_team_id: teamId,
-  });
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/rosters");
-  revalidatePath("/draft-pools");
-  revalidatePath("/my-team");
-}
-
-export async function revertDraftToPick(seasonId: number, conferenceId: number, keepUpToPickNumber: number) {
-  await requireAdmin();
-
-  const admin = createAdminClient();
-  const { error } = await admin.rpc("revert_draft_to_pick", {
-    p_season_id: seasonId,
-    p_conference_id: conferenceId,
-    p_keep_up_to_pick_number: keepUpToPickNumber,
-  });
-
-  if (error) throw new Error(error.message);
-
-  revalidatePath("/admin/rosters");
-  revalidatePath("/draft-pools");
-  revalidatePath("/my-team");
 }
 
 export async function updateTeamFaTokenAdjustment(seasonId: number, teamId: number, adjustment: number) {

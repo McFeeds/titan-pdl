@@ -43,8 +43,18 @@ export default async function StandingsPage() {
   // than from the win/loss components above.
   const teamRecords: Record<number, { wins: number; losses: number }> = {};
   const teamGameDiff: Record<number, number> = {};
+  // a's record specifically against b, summed over every match between
+  // exactly that pair — the basis for the head-to-head tiebreaker below.
+  const headToHead: Record<number, Record<number, { wins: number; losses: number }>> = {};
   function ensureRecord(id: number) {
     if (!teamRecords[id]) teamRecords[id] = { wins: 0, losses: 0 };
+  }
+  function addH2H(a: number, b: number, wins: number, losses: number) {
+    if (!wins && !losses) return;
+    if (!headToHead[a]) headToHead[a] = {};
+    if (!headToHead[a][b]) headToHead[a][b] = { wins: 0, losses: 0 };
+    headToHead[a][b].wins += wins;
+    headToHead[a][b].losses += losses;
   }
   for (const m of (rawMatches ?? []) as any[]) {
     const games: any[] = m.match_games ?? [];
@@ -57,6 +67,8 @@ export default async function StandingsPage() {
       teamRecords[m.home_team_id].losses += homeLosses;
       teamRecords[m.away_team_id].wins += awayWins;
       teamRecords[m.away_team_id].losses += awayLosses;
+      addH2H(m.home_team_id, m.away_team_id, homeWins, homeLosses);
+      addH2H(m.away_team_id, m.home_team_id, awayWins, awayLosses);
     }
 
     for (const g of games) {
@@ -71,6 +83,67 @@ export default async function StandingsPage() {
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
+  function getH2H(a: number, b: number): { wins: number; losses: number } {
+    return headToHead[a]?.[b] ?? { wins: 0, losses: 0 };
+  }
+
+  // Final fallback once neither overall record nor head-to-head separates a
+  // group: game +/- (see plusMinus above), then team name for a fully
+  // deterministic order.
+  function rankByPlusMinus(rows: TeamStanding[]): TeamStanding[] {
+    return [...rows].sort((a, b) => {
+      if (b.plusMinus !== a.plusMinus) return b.plusMinus - a.plusMinus;
+      return a.team_name.localeCompare(b.team_name);
+    });
+  }
+
+  // Ranks a set of teams already tied on overall record, by head-to-head
+  // record computed only among these teams. Any teams that remain tied on
+  // that head-to-head record — including the "circle of suck" case (A beat
+  // B, B beat C, C beat A, so all three end up an identical 1-1 against
+  // each other) where it doesn't separate anyone at all — fall through to
+  // the +/- tiebreaker instead.
+  function rankTiedGroup(rows: TeamStanding[]): TeamStanding[] {
+    if (rows.length <= 1) return rows;
+
+    const ids = rows.map((r) => r.id);
+    const withH2H = rows.map((r) => {
+      let wins = 0;
+      let losses = 0;
+      for (const otherId of ids) {
+        if (otherId === r.id) continue;
+        const h2h = getH2H(r.id, otherId);
+        wins += h2h.wins;
+        losses += h2h.losses;
+      }
+      return { row: r, h2hWins: wins, h2hLosses: losses };
+    });
+
+    withH2H.sort((a, b) => {
+      if (b.h2hWins !== a.h2hWins) return b.h2hWins - a.h2hWins;
+      return a.h2hLosses - b.h2hLosses;
+    });
+
+    // Cluster consecutive entries with an identical head-to-head record —
+    // still tied by this measure, so that cluster needs the next tiebreaker.
+    const result: TeamStanding[] = [];
+    let i = 0;
+    while (i < withH2H.length) {
+      let j = i + 1;
+      while (
+        j < withH2H.length &&
+        withH2H[j].h2hWins === withH2H[i].h2hWins &&
+        withH2H[j].h2hLosses === withH2H[i].h2hLosses
+      ) {
+        j++;
+      }
+      const cluster = withH2H.slice(i, j).map((x) => x.row);
+      result.push(...(cluster.length === 1 ? cluster : rankByPlusMinus(cluster)));
+      i = j;
+    }
+    return result;
+  }
+
   function buildRow(teamId: number): TeamStanding {
     const team = teamMap.get(teamId);
     const record = teamRecords[teamId] ?? { wins: 0, losses: 0 };
@@ -84,13 +157,27 @@ export default async function StandingsPage() {
     };
   }
 
+  // Tiebreak order: 1) overall record, 2) head-to-head among whoever's
+  // still tied, 3) game +/- (also the fallback when head-to-head can't
+  // separate a tied group at all), 4) team name.
   function sortTeams(rows: TeamStanding[]): TeamStanding[] {
-    return [...rows].sort((a, b) => {
+    const sorted = [...rows].sort((a, b) => {
       if (b.wins !== a.wins) return b.wins - a.wins;
-      if (a.losses !== b.losses) return a.losses - b.losses;
-      if (b.plusMinus !== a.plusMinus) return b.plusMinus - a.plusMinus;
-      return a.team_name.localeCompare(b.team_name);
+      return a.losses - b.losses;
     });
+
+    const result: TeamStanding[] = [];
+    let i = 0;
+    while (i < sorted.length) {
+      let j = i + 1;
+      while (j < sorted.length && sorted[j].wins === sorted[i].wins && sorted[j].losses === sorted[i].losses) {
+        j++;
+      }
+      const group = sorted.slice(i, j);
+      result.push(...(group.length === 1 ? group : rankTiedGroup(group)));
+      i = j;
+    }
+    return result;
   }
 
   const standings: ConferenceStandings[] = (conferences ?? []).map((conf) => {

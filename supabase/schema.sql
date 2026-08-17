@@ -224,7 +224,8 @@ BEGIN
       (SELECT COUNT(*) FROM rosters r WHERE r.team_id = ts.team_id AND r.season_id = p_season_id) >= p_max_slots
       OR NOT EXISTS (
         SELECT 1 FROM pokemon p
-        WHERE p.point_value <= (
+        WHERE p.point_value > 0 -- banned pokemon (0 pts) are never actually draftable
+        AND p.point_value <= (
           v_point_budget - COALESCE((
             SELECT SUM(po.point_value) FROM rosters r JOIN pokemon po ON po.id = r.pokemon_id
             WHERE r.team_id = ts.team_id AND r.season_id = p_season_id

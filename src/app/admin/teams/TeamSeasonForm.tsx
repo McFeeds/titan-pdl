@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { upsertTeamSeason } from "./actions";
 
 const inputCls =
@@ -15,7 +16,7 @@ type DraftPool = { id: number; name: string };
 type TeamSeason = {
   team_id: number;
   season_id: number;
-  conference_id: number;
+  conference_id: number | null;
   group_id: number | null;
   draft_pool_id: number | null;
   draft_position: number | null;
@@ -43,10 +44,24 @@ export default function TeamSeasonForm({
     ? teamSeasons.find((ts) => ts.season_id === activeSeason.id)
     : null;
 
+  const router = useRouter();
   const [state, formAction, pending] = useActionState(upsertTeamSeason, null);
   const [selectedConference, setSelectedConference] = useState(
     activePlacement?.conference_id?.toString() ?? ""
   );
+
+  // revalidatePath alone doesn't force this already-mounted client form to
+  // re-render with the freshly-saved server data — router.refresh() (paired
+  // with the key on this component in the parent page, which remounts it
+  // once fresh props arrive) is what makes the fields actually reflect the
+  // save immediately instead of only after navigating away and back.
+  const wasPending = useRef(false);
+  useEffect(() => {
+    if (wasPending.current && !pending && !state?.error) {
+      router.refresh();
+    }
+    wasPending.current = pending;
+  }, [pending, state, router]);
 
   const filteredGroups = selectedConference
     ? groups.filter((g) => g.conference_id === Number(selectedConference))

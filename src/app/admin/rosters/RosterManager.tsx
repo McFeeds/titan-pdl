@@ -17,7 +17,7 @@ type Team = { id: number; team_name: string };
 type TeamSeason = {
   team_id: number;
   season_id: number;
-  conference_id: number;
+  conference_id: number | null;
   draft_pool_id: number | null;
   draft_ended_at: string | null;
   fa_tokens_adjustment: number;

@@ -700,7 +700,11 @@ CREATE INDEX idx_tx_items_team        ON transaction_items (team_id);
 CREATE TABLE team_seasons (
   team_id        INTEGER NOT NULL REFERENCES teams(id),
   season_id      INTEGER NOT NULL REFERENCES seasons(id),
-  conference_id  INTEGER NOT NULL REFERENCES conferences(id),
+  -- Nullable: a team is placed in a season (auto-added on creation) before
+  -- an admin necessarily assigns it a conference. Draft/roster actions
+  -- require a real conference — see resolveCallerTeam() and
+  -- submit_draft_pick/record_draft_pick's own NULL checks.
+  conference_id  INTEGER REFERENCES conferences(id),
   group_id       INTEGER REFERENCES groups(id),
   -- Which draft pool this team drafts in this season — independent of
   -- conference/group, which stay purely for standings and rostering. See

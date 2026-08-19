@@ -65,7 +65,9 @@ export interface Team {
 export interface TeamSeason {
   team_id: number;
   season_id: number;
-  conference_id: number;
+  // Nullable — a team is placed in a season (auto-added on creation)
+  // before an admin necessarily assigns it a conference.
+  conference_id: number | null;
   group_id: number | null;
   // Which draft pool this team drafts in — independent of conference/group.
   draft_pool_id: number | null;

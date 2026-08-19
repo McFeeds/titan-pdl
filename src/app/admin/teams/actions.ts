@@ -15,9 +15,27 @@ export async function createTeam(_prevState: State, formData: FormData): Promise
   if (!team_name) return { error: "Team name is required." };
 
   const admin = createAdminClient();
-  const { error } = await admin.from("teams").insert({ team_name, logo_url });
+  const { data: team, error } = await admin
+    .from("teams")
+    .insert({ team_name, logo_url })
+    .select("id")
+    .single();
 
   if (error) return { error: error.message };
+
+  // Auto-place the new team in the active season (conference/group/draft
+  // pool are assigned afterward) so it shows up under the season filter
+  // on the Teams page right away instead of only under "All Teams".
+  const { data: activeSeason } = await admin
+    .from("seasons")
+    .select("id")
+    .eq("is_active", true)
+    .limit(1)
+    .maybeSingle();
+
+  if (activeSeason) {
+    await admin.from("team_seasons").insert({ team_id: team.id, season_id: activeSeason.id });
+  }
 
   revalidatePath("/admin/teams");
   redirect("/admin/teams");
@@ -64,7 +82,6 @@ export async function upsertTeamSeason(_prevState: State, formData: FormData): P
   const draft_position = formData.get("draft_position") ? Number(formData.get("draft_position")) : null;
 
   if (!season_id) return { error: "No active season found." };
-  if (!conference_id) return { error: "Conference is required." };
 
   const admin = createAdminClient();
   const { error } = await admin

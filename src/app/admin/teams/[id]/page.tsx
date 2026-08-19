@@ -32,6 +32,10 @@ export default async function EditTeamPage({
 
   if (!team) notFound();
 
+  const activePlacement = activeSeason
+    ? (teamSeasons ?? []).find((ts) => ts.season_id === activeSeason.id)
+    : null;
+
   const { data: draftPools } = activeSeason
     ? await supabase.from("draft_pools").select("id, name").eq("season_id", activeSeason.id).order("name")
     : { data: [] };
@@ -50,6 +54,11 @@ export default async function EditTeamPage({
       <h1 className="text-2xl font-bold text-white mb-6">Edit Team</h1>
       <TeamForm action={updateTeam} team={team} />
       <TeamSeasonForm
+        // Forces a remount whenever the saved placement actually changes,
+        // so the form's fields (several of which are uncontrolled,
+        // defaultValue-driven inputs) pick up the fresh values instead of
+        // keeping whatever they were at the form's last mount.
+        key={`${activePlacement?.conference_id ?? "none"}-${activePlacement?.group_id ?? "none"}-${activePlacement?.draft_pool_id ?? "none"}-${activePlacement?.draft_position ?? "none"}`}
         teamId={Number(id)}
         activeSeason={activeSeason ?? null}
         conferences={conferences ?? []}

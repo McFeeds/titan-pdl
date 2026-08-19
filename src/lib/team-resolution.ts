@@ -45,7 +45,12 @@ export async function resolveCallerTeam(): Promise<{ team: CallerTeam | null; er
     .eq("team_id", membership.team_id)
     .eq("season_id", activeSeason.id)
     .maybeSingle();
-  if (!placement) return { team: null, error: "Your team has no conference assigned this season" };
+  // A team can be placed in a season (auto-added on creation) before it
+  // has a conference — treat that the same as no placement at all, since
+  // every draft/FA action needs a real conference.
+  if (!placement || placement.conference_id === null) {
+    return { team: null, error: "Your team has no conference assigned this season" };
+  }
 
   return {
     team: {

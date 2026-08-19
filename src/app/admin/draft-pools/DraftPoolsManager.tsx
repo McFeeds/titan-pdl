@@ -28,7 +28,7 @@ type Team = { id: number; team_name: string };
 type TeamSeason = {
   team_id: number;
   season_id: number;
-  conference_id: number;
+  conference_id: number | null;
   group_id: number | null;
   draft_pool_id: number | null;
   draft_position: number | null;
@@ -455,7 +455,7 @@ function PoolCard({
                     />
                     <span className="text-gray-200">{teamById.get(ts.team_id)?.team_name ?? `Team #${ts.team_id}`}</span>
                     <span className="text-gray-600">
-                      {conferenceNameById.get(ts.conference_id) ?? "—"}
+                      {(ts.conference_id !== null && conferenceNameById.get(ts.conference_id)) || "—"}
                       {ts.draft_pool_id ? " · currently in another pool" : ""}
                     </span>
                   </li>
@@ -488,7 +488,7 @@ function PoolCard({
                 ts={ts}
                 seasonId={seasonId}
                 team={teamById.get(ts.team_id)}
-                conferenceName={conferenceNameById.get(ts.conference_id) ?? "—"}
+                conferenceName={(ts.conference_id !== null && conferenceNameById.get(ts.conference_id)) || "—"}
                 groupName={ts.group_id ? groupNameById.get(ts.group_id) ?? null : null}
               />
             ))}

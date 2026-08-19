@@ -59,10 +59,14 @@ export async function setActiveSeason(formData: FormData) {
   revalidatePath("/admin/seasons");
 }
 
-export async function deleteSeason(formData: FormData) {
+export async function deleteSeason(_prevState: State, formData: FormData): Promise<State> {
   await requireAdmin();
   const id = Number(formData.get("id"));
   const admin = createAdminClient();
-  await admin.from("seasons").delete().eq("id", id);
+  const { error } = await admin.from("seasons").delete().eq("id", id);
+  if (error) {
+    return { error: "This season has teams, matches, or draft history and can't be deleted." };
+  }
   revalidatePath("/admin/seasons");
+  return null;
 }

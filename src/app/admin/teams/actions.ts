@@ -62,11 +62,37 @@ export async function updateTeam(_prevState: State, formData: FormData): Promise
   redirect("/admin/teams");
 }
 
-export async function deleteTeam(formData: FormData) {
+export async function deleteTeam(_prevState: State, formData: FormData): Promise<State> {
   await requireAdmin();
   const id = Number(formData.get("id"));
   const admin = createAdminClient();
-  await admin.from("teams").delete().eq("id", id);
+
+  // Every team now gets a team_seasons row on creation (auto-placed in the
+  // active season), and no team-referencing foreign key cascades — so a
+  // plain delete silently failed for essentially every team. Distinguish
+  // "just placement/roster-membership metadata" (safe to clear) from real
+  // competitive history (drafted rosters, picks, match results, FA moves —
+  // refuse to delete rather than silently no-op or cascade it away).
+  const [{ count: rosterCount }, { count: draftLogCount }, { count: matchCount }, { count: txCount }] =
+    await Promise.all([
+      admin.from("rosters").select("*", { count: "exact", head: true }).eq("team_id", id),
+      admin.from("draft_log").select("*", { count: "exact", head: true }).eq("team_id", id),
+      admin.from("matches").select("*", { count: "exact", head: true }).or(`home_team_id.eq.${id},away_team_id.eq.${id}`),
+      admin.from("transaction_items").select("*", { count: "exact", head: true }).eq("team_id", id),
+    ]);
+
+  if ((rosterCount ?? 0) > 0 || (draftLogCount ?? 0) > 0 || (matchCount ?? 0) > 0 || (txCount ?? 0) > 0) {
+    return {
+      error: "This team has draft picks, rosters, matches, or free-agency history and can't be deleted.",
+    };
+  }
+
+  await admin.from("team_seasons").delete().eq("team_id", id);
+  await admin.from("team_members").delete().eq("team_id", id);
+
+  const { error } = await admin.from("teams").delete().eq("id", id);
+  if (error) return { error: error.message };
+
   revalidatePath("/admin/teams");
   redirect("/admin/teams");
 }

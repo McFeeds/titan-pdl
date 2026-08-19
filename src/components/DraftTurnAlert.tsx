@@ -11,7 +11,7 @@ import { computeOnClockTeamId, GO_TO_DRAFT_POOL_EVENT, type DraftTeamState } fro
 export default function DraftTurnAlert() {
   const [teamId, setTeamId] = useState<number | null>(null);
   const [seasonId, setSeasonId] = useState<number | null>(null);
-  const [conferenceId, setConferenceId] = useState<number | null>(null);
+  const [draftPoolId, setDraftPoolId] = useState<number | null>(null);
 
   const [isDraftActive, setIsDraftActive] = useState(false);
   const [teamStates, setTeamStates] = useState<DraftTeamState[]>([]);
@@ -55,7 +55,7 @@ export default function DraftTurnAlert() {
 
       const { data: placement } = await supabase
         .from("team_seasons")
-        .select("conference_id")
+        .select("draft_pool_id")
         .eq("team_id", membership.team_id)
         .eq("season_id", activeSeason.id)
         .maybeSingle();
@@ -63,7 +63,7 @@ export default function DraftTurnAlert() {
 
       setSeasonId(activeSeason.id);
       setTeamId(membership.team_id);
-      setConferenceId(placement.conference_id);
+      setDraftPoolId(placement.draft_pool_id);
     }
 
     resolve();
@@ -72,31 +72,28 @@ export default function DraftTurnAlert() {
     };
   }, []);
 
-  // Load current draft state for that conference and keep it live.
+  // Load current draft state for that pool and keep it live.
   useEffect(() => {
-    if (seasonId === null || conferenceId === null) return;
+    if (seasonId === null || draftPoolId === null) return;
     const supabase = createClient();
     let cancelled = false;
 
     async function loadInitial() {
-      const [{ data: draftState }, { data: draftLog }, { data: conferenceTeamSeasons }] =
+      const [{ data: draftPool }, { data: draftLog }, { data: poolTeamSeasons }] =
         await Promise.all([
           supabase
-            .from("conference_drafts")
+            .from("draft_pools")
             .select("is_active")
-            .eq("season_id", seasonId)
-            .eq("conference_id", conferenceId)
+            .eq("id", draftPoolId)
             .maybeSingle(),
           supabase
             .from("draft_log")
             .select("id, team_id")
-            .eq("season_id", seasonId)
-            .eq("conference_id", conferenceId),
+            .eq("draft_pool_id", draftPoolId),
           supabase
             .from("team_seasons")
             .select("team_id, draft_position, draft_ended_at")
-            .eq("season_id", seasonId)
-            .eq("conference_id", conferenceId),
+            .eq("draft_pool_id", draftPoolId),
         ]);
       if (cancelled) return;
 
@@ -106,9 +103,9 @@ export default function DraftTurnAlert() {
         pickIdToTeamRef.current.set(row.id, row.team_id);
       }
 
-      setIsDraftActive(draftState?.is_active ?? false);
+      setIsDraftActive(draftPool?.is_active ?? false);
       setTeamStates(
-        (conferenceTeamSeasons ?? []).map((ts) => ({
+        (poolTeamSeasons ?? []).map((ts) => ({
           id: ts.team_id,
           draftPosition: ts.draft_position,
           draftEnded: ts.draft_ended_at !== null,
@@ -120,18 +117,17 @@ export default function DraftTurnAlert() {
     loadInitial();
 
     const channel = supabase
-      .channel(`draft-turn-alert-${seasonId}-${conferenceId}`)
+      .channel(`draft-turn-alert-${seasonId}-${draftPoolId}`)
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "draft_log" },
         (payload) => {
           const row = payload.new as {
             id: number;
-            season_id: number;
-            conference_id: number;
+            draft_pool_id: number;
             team_id: number;
           };
-          if (row.season_id !== seasonId || row.conference_id !== conferenceId) return;
+          if (row.draft_pool_id !== draftPoolId) return;
           pickIdToTeamRef.current.set(row.id, row.team_id);
           setTeamStates((prev) =>
             prev.map((t) => (t.id === row.team_id ? { ...t, picksMade: t.picksMade + 1 } : t))
@@ -153,19 +149,19 @@ export default function DraftTurnAlert() {
       )
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "conference_drafts" },
+        { event: "INSERT", schema: "public", table: "draft_pools" },
         (payload) => {
-          const row = payload.new as { season_id: number; conference_id: number; is_active: boolean };
-          if (row.season_id !== seasonId || row.conference_id !== conferenceId) return;
+          const row = payload.new as { id: number; is_active: boolean };
+          if (row.id !== draftPoolId) return;
           setIsDraftActive(row.is_active);
         }
       )
       .on(
         "postgres_changes",
-        { event: "UPDATE", schema: "public", table: "conference_drafts" },
+        { event: "UPDATE", schema: "public", table: "draft_pools" },
         (payload) => {
-          const row = payload.new as { season_id: number; conference_id: number; is_active: boolean };
-          if (row.season_id !== seasonId || row.conference_id !== conferenceId) return;
+          const row = payload.new as { id: number; is_active: boolean };
+          if (row.id !== draftPoolId) return;
           setIsDraftActive(row.is_active);
         }
       )
@@ -175,11 +171,10 @@ export default function DraftTurnAlert() {
         (payload) => {
           const row = payload.new as {
             team_id: number;
-            season_id: number;
-            conference_id: number;
+            draft_pool_id: number | null;
             draft_ended_at: string | null;
           };
-          if (row.season_id !== seasonId || row.conference_id !== conferenceId) return;
+          if (row.draft_pool_id !== draftPoolId) return;
           setTeamStates((prev) =>
             prev.map((t) => (t.id === row.team_id ? { ...t, draftEnded: row.draft_ended_at !== null } : t))
           );
@@ -191,7 +186,7 @@ export default function DraftTurnAlert() {
       cancelled = true;
       supabase.removeChannel(channel);
     };
-  }, [seasonId, conferenceId]);
+  }, [seasonId, draftPoolId]);
 
   const onClockTeamId = useMemo(() => {
     if (!isDraftActive || teamStates.length === 0) return null;

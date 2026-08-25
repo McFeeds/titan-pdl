@@ -183,15 +183,17 @@ export default async function StandingsPage() {
   const standings: ConferenceStandings[] = (conferences ?? []).map((conf) => {
     const confGroups = (groups ?? []).filter((g) => g.conference_id === conf.id);
 
-    const groupStandings = confGroups.map((g) => ({
-      id: g.id,
-      name: g.name,
-      teams: sortTeams(
-        (teamSeasons ?? [])
-          .filter((ts) => ts.conference_id === conf.id && ts.group_id === g.id)
-          .map((ts) => buildRow(ts.team_id))
-      ),
-    }));
+    const groupStandings = confGroups
+      .map((g) => ({
+        id: g.id,
+        name: g.name,
+        teams: sortTeams(
+          (teamSeasons ?? [])
+            .filter((ts) => ts.conference_id === conf.id && ts.group_id === g.id)
+            .map((ts) => buildRow(ts.team_id))
+        ),
+      }))
+      .filter((g) => g.teams.length > 0);
 
     // Teams placed in this conference with no group assigned
     const ungroupedTeams = sortTeams(

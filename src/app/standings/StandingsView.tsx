@@ -121,7 +121,7 @@ export default function StandingsView({ standings }: { standings: ConferenceStan
 
             {selectedConference &&
               (selectedConference.groups.length === 0 ? (
-                <p className="text-gray-600 text-sm italic">No groups set up for this conference.</p>
+                <p className="text-gray-600 text-sm italic">No teams placed in this conference yet.</p>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
                   {selectedConference.groups.map((g) => (

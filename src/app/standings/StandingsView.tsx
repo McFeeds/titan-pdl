@@ -93,7 +93,7 @@ export default function StandingsView({ standings }: { standings: ConferenceStan
 
   return (
     <main className="min-h-screen bg-[#0a0a1a] pt-20 px-6 pb-12">
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-[1800px] mx-auto">
         <div className="pt-6 mb-6">
           <h1 className="text-2xl font-bold text-white">Standings</h1>
           <p className="text-sm text-gray-500 mt-1">Current season records by group</p>
@@ -123,7 +123,7 @@ export default function StandingsView({ standings }: { standings: ConferenceStan
               (selectedConference.groups.length === 0 ? (
                 <p className="text-gray-600 text-sm italic">No teams placed in this conference yet.</p>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div className="grid gap-5 grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
                   {selectedConference.groups.map((g) => (
                     <GroupTable key={g.id} name={g.name} teams={g.teams} />
                   ))}

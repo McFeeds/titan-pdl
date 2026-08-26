@@ -6,9 +6,9 @@ import type { ConferenceStandings, TeamStanding } from "./types";
 function TeamLogo({ team }: { team: Pick<TeamStanding, "team_name" | "logo_url"> }) {
   return team.logo_url ? (
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={team.logo_url} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
+    <img src={team.logo_url} alt="" className="w-16 h-16 rounded-lg object-cover shrink-0" />
   ) : (
-    <div className="w-12 h-12 rounded-lg bg-indigo-600/40 shrink-0 flex items-center justify-center text-lg font-bold text-indigo-300">
+    <div className="w-16 h-16 rounded-lg bg-indigo-600/40 shrink-0 flex items-center justify-center text-2xl font-bold text-indigo-300">
       {team.team_name[0]?.toUpperCase()}
     </div>
   );
@@ -47,21 +47,21 @@ function GroupTable({ name, teams }: { name: string; teams: TeamStanding[] }) {
                   key={team.id}
                   className={`border-t border-white/5 ${i % 2 === 1 ? "bg-white/[0.02]" : ""}`}
                 >
-                  <td className="px-4 py-3.5 text-gray-500 font-mono text-xs">{i + 1}</td>
-                  <td className="px-2 py-3.5">
+                  <td className="px-4 py-4 text-gray-500 font-mono text-xs">{i + 1}</td>
+                  <td className="px-2 py-4">
                     <div className="flex items-center gap-2 min-w-0">
                       <TeamLogo team={team} />
                       <span className="text-gray-200 text-sm font-medium truncate">{team.team_name}</span>
                     </div>
                   </td>
-                  <td className="px-2 py-3.5 text-center font-mono text-xs text-emerald-400 font-semibold">
+                  <td className="px-2 py-4 text-center font-mono text-xs text-emerald-400 font-semibold">
                     {team.wins}
                   </td>
-                  <td className="px-2 py-3.5 text-center font-mono text-xs text-red-400 font-semibold">
+                  <td className="px-2 py-4 text-center font-mono text-xs text-red-400 font-semibold">
                     {team.losses}
                   </td>
                   <td
-                    className={`px-2 py-3.5 text-center font-mono text-xs font-semibold ${
+                    className={`px-2 py-4 text-center font-mono text-xs font-semibold ${
                       team.plusMinus > 0
                         ? "text-emerald-400"
                         : team.plusMinus < 0
@@ -71,7 +71,7 @@ function GroupTable({ name, teams }: { name: string; teams: TeamStanding[] }) {
                   >
                     {team.plusMinus > 0 ? `+${team.plusMinus}` : team.plusMinus}
                   </td>
-                  <td className="px-4 py-3.5 text-center font-mono text-xs text-gray-400">
+                  <td className="px-4 py-4 text-center font-mono text-xs text-gray-400">
                     {formatPct(team.wins, team.losses)}
                   </td>
                 </tr>

@@ -88,6 +88,11 @@ function TeamRow({
         <p className="text-[10px] text-gray-600 mt-0.5 font-mono">
           {team.wins}–{team.losses}
         </p>
+        {team.coaches.length > 0 && (
+          <p className="text-[9px] text-gray-600 truncate mt-0.5" title={team.coaches.join(", ")}>
+            {team.coaches.join(", ")}
+          </p>
+        )}
       </div>
 
       {/* Pokemon sprites */}

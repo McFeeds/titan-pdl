@@ -10,6 +10,7 @@ export interface TeamInfo {
   id: number;
   team_name: string;
   logo_url: string | null;
+  coaches: string[];
   wins: number;
   losses: number;
 }

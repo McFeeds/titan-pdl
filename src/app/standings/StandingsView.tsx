@@ -51,7 +51,14 @@ function GroupTable({ name, teams }: { name: string; teams: TeamStanding[] }) {
                   <td className="px-2 py-4">
                     <div className="flex items-center gap-2 min-w-0">
                       <TeamLogo team={team} />
-                      <span className="text-gray-200 text-sm font-medium truncate">{team.team_name}</span>
+                      <div className="min-w-0">
+                        <span className="block text-gray-200 text-sm font-medium truncate">{team.team_name}</span>
+                        {team.coaches.length > 0 && (
+                          <span className="block text-[11px] text-gray-500 truncate">
+                            {team.coaches.join(", ")}
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </td>
                   <td className="px-2 py-4 text-center font-mono text-xs text-emerald-400 font-semibold">

@@ -19,7 +19,7 @@ export default async function StandingsPage() {
     return <UnderConstruction title="Current League" />;
   }
 
-  const [{ data: rawMatches }, { data: teamSeasons }, { data: teams }] = await Promise.all([
+  const [{ data: rawMatches }, { data: teamSeasons }, { data: teams }, { data: teamMembers }] = await Promise.all([
     supabase
       .from("matches")
       .select("id, home_team_id, away_team_id, match_games(game_number, game_type, winner_team_id)")
@@ -29,11 +29,25 @@ export default async function StandingsPage() {
       .select("team_id, conference_id, group_id")
       .eq("season_id", activeSeason.id),
     supabase.from("teams").select("id, team_name, logo_url"),
+    supabase
+      .from("team_members")
+      .select("team_id, discord_id, showdown_name")
+      .eq("season_id", activeSeason.id)
+      .order("discord_id"),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const teamMap = new Map((teams ?? []).map((t: any) => [t.id, t]));
   const matchFormat = activeSeason.match_format;
+
+  // Coaches/owners shown under the team name — one entry per team_members
+  // row for that season.
+  const coachesByTeam = new Map<number, string[]>();
+  for (const m of teamMembers ?? []) {
+    const list = coachesByTeam.get(m.team_id) ?? [];
+    list.push(m.showdown_name ? `${m.discord_id} (${m.showdown_name})` : m.discord_id);
+    coachesByTeam.set(m.team_id, list);
+  }
 
   // Season W/L per team (format-aware — see src/lib/matchRecord.ts), same
   // computation used on the Schedules page. Alongside it, +/- tallies every
@@ -151,6 +165,7 @@ export default async function StandingsPage() {
       id: teamId,
       team_name: team?.team_name ?? `Team #${teamId}`,
       logo_url: team?.logo_url ?? null,
+      coaches: coachesByTeam.get(teamId) ?? [],
       wins: record.wins,
       losses: record.losses,
       plusMinus: teamGameDiff[teamId] ?? 0,

@@ -2,6 +2,7 @@ export interface TeamStanding {
   id: number;
   team_name: string;
   logo_url: string | null;
+  coaches: string[];
   wins: number;
   losses: number;
   // Total individual games won minus lost across the season (not the same

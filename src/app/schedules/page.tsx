@@ -59,6 +59,7 @@ export default async function SchedulesPage() {
     { data: rawRosters },
     { data: teamSeasons },
     { data: teams },
+    { data: teamMembers },
   ] = await Promise.all([
     // Deep fetch: matches → match_games → match_game_pokemon → pokemon
     supabase
@@ -85,12 +86,27 @@ export default async function SchedulesPage() {
       .eq("season_id", activeSeason.id),
 
     supabase.from("teams").select("id, team_name, logo_url"),
+
+    supabase
+      .from("team_members")
+      .select("team_id, discord_id, showdown_name")
+      .eq("season_id", activeSeason.id)
+      .order("discord_id"),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
 
   const teamMap = new Map((teams ?? []).map((t: any) => [t.id, t]));
   const teamConfMap = new Map((teamSeasons ?? []).map((ts: any) => [ts.team_id, ts.conference_id]));
+
+  // Coaches/owners shown under the team name — one entry per team_members
+  // row for that season.
+  const coachesByTeam = new Map<number, string[]>();
+  for (const m of teamMembers ?? []) {
+    const list = coachesByTeam.get(m.team_id) ?? [];
+    list.push(m.showdown_name ? `${m.discord_id} (${m.showdown_name})` : m.discord_id);
+    coachesByTeam.set(m.team_id, list);
+  }
 
   // Build roster map: team_id → PokemonBasic[]
   const rosterMap = new Map<number, PokemonBasic[]>();
@@ -191,8 +207,18 @@ export default async function SchedulesPage() {
       week_number: m.week_number as number,
       conference_id: (teamConfMap.get(m.home_team_id) ?? null) as number | null,
       match_format: matchFormat,
-      home_team: { ...baseHome, wins: homeRecord.wins, losses: homeRecord.losses },
-      away_team: { ...baseAway, wins: awayRecord.wins, losses: awayRecord.losses },
+      home_team: {
+        ...baseHome,
+        wins: homeRecord.wins,
+        losses: homeRecord.losses,
+        coaches: coachesByTeam.get(m.home_team_id) ?? [],
+      },
+      away_team: {
+        ...baseAway,
+        wins: awayRecord.wins,
+        losses: awayRecord.losses,
+        coaches: coachesByTeam.get(m.away_team_id) ?? [],
+      },
       home_games_won: homeScore,
       away_games_won: awayScore,
       decided,

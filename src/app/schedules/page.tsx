@@ -104,7 +104,8 @@ export default async function SchedulesPage() {
   const coachesByTeam = new Map<number, string[]>();
   for (const m of teamMembers ?? []) {
     const list = coachesByTeam.get(m.team_id) ?? [];
-    list.push(m.showdown_name ? `${m.discord_id} (${m.showdown_name})` : m.discord_id);
+    const sameAsDiscord = m.showdown_name?.toLowerCase() === m.discord_id.toLowerCase();
+    list.push(m.showdown_name && !sameAsDiscord ? `${m.discord_id} (${m.showdown_name})` : m.discord_id);
     coachesByTeam.set(m.team_id, list);
   }
 

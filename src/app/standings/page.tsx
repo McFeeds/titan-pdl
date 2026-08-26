@@ -31,7 +31,7 @@ export default async function StandingsPage() {
     supabase.from("teams").select("id, team_name, logo_url"),
     supabase
       .from("team_members")
-      .select("team_id, discord_id, showdown_name")
+      .select("team_id, discord_id")
       .eq("season_id", activeSeason.id)
       .order("discord_id"),
   ]);
@@ -45,8 +45,7 @@ export default async function StandingsPage() {
   const coachesByTeam = new Map<number, string[]>();
   for (const m of teamMembers ?? []) {
     const list = coachesByTeam.get(m.team_id) ?? [];
-    const sameAsDiscord = m.showdown_name?.toLowerCase() === m.discord_id.toLowerCase();
-    list.push(m.showdown_name && !sameAsDiscord ? `${m.discord_id} (${m.showdown_name})` : m.discord_id);
+    list.push(m.discord_id);
     coachesByTeam.set(m.team_id, list);
   }
 

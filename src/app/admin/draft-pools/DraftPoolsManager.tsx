@@ -34,7 +34,14 @@ type TeamSeason = {
   draft_position: number | null;
   draft_ended_at: string | null;
 };
-type DraftPool = { id: number; season_id: number; name: string; is_active: boolean; started_at: string | null };
+type DraftPool = {
+  id: number;
+  season_id: number;
+  name: string;
+  is_active: boolean;
+  started_at: string | null;
+  completed_at: string | null;
+};
 type DraftLogEntry = {
   id: number;
   season_id: number;
@@ -333,7 +340,16 @@ function PoolCard({
     });
   }
 
-  const status = pool.is_active ? "Live" : pool.started_at ? "Ended" : "Not started";
+  // completed_at (not started_at + !is_active) is the real "done" signal —
+  // a paused pool looks identical to an ended one by started_at/is_active
+  // alone, but only completion actually opens free agency.
+  const status = pool.is_active
+    ? "Live"
+    : pool.completed_at
+      ? "Complete"
+      : pool.started_at
+        ? "Paused"
+        : "Not started";
 
   return (
     <div className="border border-white/10 rounded-xl p-5 flex flex-col gap-4">
@@ -348,7 +364,13 @@ function PoolCard({
         />
         <span
           className={`text-xs font-semibold ${
-            pool.is_active ? "text-emerald-400" : pool.started_at ? "text-gray-500" : "text-amber-400"
+            pool.is_active
+              ? "text-emerald-400"
+              : pool.completed_at
+                ? "text-indigo-400"
+                : pool.started_at
+                  ? "text-gray-500"
+                  : "text-amber-400"
           }`}
         >
           ● {status}
@@ -362,7 +384,7 @@ function PoolCard({
               : "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/40"
           }`}
         >
-          {pool.is_active ? "End Draft" : "Start Draft"}
+          {pool.is_active ? "Pause Draft" : pool.started_at ? "Resume Draft" : "Start Draft"}
         </button>
 
         <div className="ml-auto">

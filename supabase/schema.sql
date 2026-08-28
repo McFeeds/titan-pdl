@@ -129,14 +129,21 @@ CREATE INDEX idx_rosters_conf    ON rosters (conference_id, season_id);
 -- currently live, so the public draft board can highlight whose turn it is.
 -- ------------------------------------------------------------
 CREATE TABLE draft_pools (
-  id         SERIAL      PRIMARY KEY,
-  season_id  INTEGER     NOT NULL REFERENCES seasons(id),
-  name       TEXT        NOT NULL,
-  is_active  BOOLEAN     NOT NULL DEFAULT FALSE,
-  -- Set once, never cleared. Distinguishes "never started" (NULL) from
-  -- "started, then ended" (NOT NULL AND is_active = false) — both look like
-  -- is_active = false alone. Drives the pre-draft free-agency lock.
-  started_at TIMESTAMPTZ,
+  id           SERIAL      PRIMARY KEY,
+  season_id    INTEGER     NOT NULL REFERENCES seasons(id),
+  name         TEXT        NOT NULL,
+  is_active    BOOLEAN     NOT NULL DEFAULT FALSE,
+  -- Set once, never cleared, the first time the draft is started. Only
+  -- distinguishes "never started" from "started" — NOT whether it's
+  -- actually done (a paused draft also has started_at set + is_active
+  -- false). Drives the pre-draft lock.
+  started_at   TIMESTAMPTZ,
+  -- Set once, never cleared, only when every team in the pool has actually
+  -- ended their own draft (see close_draft_pool_if_all_ended). This — not
+  -- started_at + is_active false — is what actually opens free agency, so
+  -- pausing or accidentally ending a draft with picks still outstanding
+  -- can never open it early.
+  completed_at TIMESTAMPTZ,
   UNIQUE (season_id, name)
 );
 
@@ -170,8 +177,8 @@ CREATE INDEX idx_draft_log_pool        ON draft_log (draft_pool_id);
 -- ------------------------------------------------------------
 -- CLOSE DRAFT POOL IF ALL ENDED
 -- If every team in a pool has now ended their draft, flip the pool to
--- inactive (started_at stays set, so it flows into free agency — same end
--- state as the admin's End Draft toggle).
+-- inactive and stamp completed_at — the only thing that actually opens
+-- free agency (see draft_pools.completed_at above).
 -- ------------------------------------------------------------
 CREATE OR REPLACE FUNCTION close_draft_pool_if_all_ended(
   p_draft_pool_id INTEGER
@@ -179,14 +186,20 @@ CREATE OR REPLACE FUNCTION close_draft_pool_if_all_ended(
 LANGUAGE plpgsql
 AS $$
 DECLARE
+  v_total     INTEGER;
   v_remaining INTEGER;
 BEGIN
-  SELECT COUNT(*) INTO v_remaining FROM team_seasons
-    WHERE draft_pool_id = p_draft_pool_id AND draft_ended_at IS NULL;
+  SELECT COUNT(*), COUNT(*) FILTER (WHERE draft_ended_at IS NULL)
+    INTO v_total, v_remaining
+    FROM team_seasons WHERE draft_pool_id = p_draft_pool_id;
 
-  IF v_remaining = 0 THEN
-    UPDATE draft_pools SET is_active = FALSE
-      WHERE id = p_draft_pool_id AND is_active = TRUE;
+  -- v_total > 0 guard: an empty pool (no teams assigned yet) would
+  -- otherwise vacuously satisfy "remaining = 0" the moment it's started.
+  IF v_total > 0 AND v_remaining = 0 THEN
+    UPDATE draft_pools
+    SET is_active    = FALSE,
+        completed_at = COALESCE(completed_at, NOW())
+      WHERE id = p_draft_pool_id;
   END IF;
 END;
 $$;
@@ -881,7 +894,7 @@ BEGIN
   DELETE FROM transactions WHERE true;
   DELETE FROM draft_log WHERE true;
   DELETE FROM rosters WHERE true;
-  UPDATE draft_pools SET is_active = FALSE, started_at = NULL WHERE true;
+  UPDATE draft_pools SET is_active = FALSE, started_at = NULL, completed_at = NULL WHERE true;
   UPDATE team_seasons SET draft_ended_at = NULL, fa_tokens_adjustment = 0 WHERE true;
 END;
 $$;

@@ -21,7 +21,7 @@ export default async function AdminDraftPoolsPage() {
       .from("team_seasons")
       .select("team_id, season_id, conference_id, group_id, draft_pool_id, draft_position, draft_ended_at")
       .order("draft_position"),
-    supabase.from("draft_pools").select("id, season_id, name, is_active, started_at").order("name"),
+    supabase.from("draft_pools").select("id, season_id, name, is_active, started_at, completed_at").order("name"),
     supabase
       .from("draft_log")
       .select("id, season_id, draft_pool_id, pick_number, team_id, pokemon_id, created_at, pokemon(name)")

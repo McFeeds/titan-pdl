@@ -43,7 +43,7 @@ export default async function DraftPoolsPage() {
       .order("draft_position"),
     supabase.auth.getUser(),
     supabase.from("draft_log").select("id, season_id, draft_pool_id, team_id"),
-    supabase.from("draft_pools").select("id, season_id, name, is_active, started_at"),
+    supabase.from("draft_pools").select("id, season_id, name, is_active, completed_at"),
     supabase.from("transactions").select("id, season_id, type"),
     supabase.from("transaction_items").select("transaction_id, team_id, action, pokemon_id"),
   ]);
@@ -147,7 +147,7 @@ export default async function DraftPoolsPage() {
   const draftActiveByPool = seasonDraftPools.map((p) => ({
     poolId: p.id,
     isActive: p.is_active,
-    startedAt: p.started_at,
+    completedAt: p.completed_at,
   }));
 
   // Free agency tokens used so far this season, per team

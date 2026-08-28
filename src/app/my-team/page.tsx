@@ -128,7 +128,7 @@ export default async function MyTeamPage() {
     draftPoolId
       ? supabase
           .from("draft_pools")
-          .select("is_active, started_at")
+          .select("is_active, started_at, completed_at")
           .eq("id", draftPoolId)
           .maybeSingle()
       : Promise.resolve({ data: null }),
@@ -233,10 +233,13 @@ export default async function MyTeamPage() {
 
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  // Draft mode: never started -> locked, active -> drafting, ended -> free agency
+  // Draft mode: never started -> locked, active -> drafting, paused -> waiting
+  // (started but not every team has finished, so picks are paused and free
+  // agency isn't open yet), completed -> free agency.
   let draftMode: DraftMode = "pre_draft";
   if (draftPool?.is_active) draftMode = "drafting";
-  else if (draftPool?.started_at) draftMode = "free_agency";
+  else if (draftPool?.completed_at) draftMode = "free_agency";
+  else if (draftPool?.started_at) draftMode = "paused";
 
   // Undrafted pokemon in this team's conference, for the add picker — also
   // excludes anything this team has already dropped this season, since

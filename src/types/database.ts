@@ -141,6 +141,10 @@ export interface DraftPool {
   name: string;
   is_active: boolean;
   started_at: string | null;
+  // Set only once every team in the pool has actually ended their draft —
+  // the real "is the draft done" signal, distinct from a paused/manually
+  // ended pool (started_at set + is_active false, but not necessarily done).
+  completed_at: string | null;
 }
 
 export interface Transaction {

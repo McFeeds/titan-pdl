@@ -13,7 +13,7 @@ import SubmitResultsModal from "./SubmitResultsModal";
 
 // --- Types ---
 
-export type DraftMode = "pre_draft" | "drafting" | "free_agency";
+export type DraftMode = "pre_draft" | "drafting" | "paused" | "free_agency";
 
 interface PokemonStat {
   pokemon_id: number;
@@ -549,6 +549,11 @@ function StatusHeader({
             <span className="text-red-400">
               {isOnClock ? "Draft in progress — you're on the clock!" : "Draft in progress"}
             </span>
+          </span>
+        )}
+        {draftMode === "paused" && (
+          <span className="text-xs font-bold text-amber-400 tracking-wide">
+            Draft paused — waiting on the league admin
           </span>
         )}
         {draftMode === "free_agency" && (

@@ -272,7 +272,7 @@ interface Props {
   userTeamId: number | null;
   teams: TeamDraftInfo[];
   draftLog: { id: number; draftPoolId: number; teamId: number }[];
-  draftActiveByPool: { poolId: number; isActive: boolean; startedAt: string | null }[];
+  draftActiveByPool: { poolId: number; isActive: boolean; completedAt: string | null }[];
   pointBudget: number;
   faTokens: number;
   faTokensUsedByTeam: Record<number, number>;
@@ -372,12 +372,14 @@ export default function DraftBoard({
     return map;
   });
 
-  // Set once a pool's draft has ever been started — distinguishes
-  // "not started yet" (locked) from "ended" (free agency open).
-  const [draftStartedMap, setDraftStartedMap] = useState<Record<number, string | null>>(() => {
+  // Set only once every team in a pool has actually ended their draft —
+  // the real "free agency open" signal, distinct from a paused or
+  // prematurely-ended pool (started_at set + is_active false, but not
+  // necessarily done).
+  const [draftCompletedMap, setDraftCompletedMap] = useState<Record<number, string | null>>(() => {
     const map: Record<number, string | null> = {};
-    for (const { poolId, startedAt } of draftActiveByPool) {
-      map[poolId] = startedAt;
+    for (const { poolId, completedAt } of draftActiveByPool) {
+      map[poolId] = completedAt;
     }
     return map;
   });
@@ -517,11 +519,11 @@ export default function DraftBoard({
             id: number;
             season_id: number;
             is_active: boolean;
-            started_at: string | null;
+            completed_at: string | null;
           };
           if (row.season_id !== activeSeasonId) return;
           setDraftActiveMap((prev) => ({ ...prev, [row.id]: row.is_active }));
-          setDraftStartedMap((prev) => ({ ...prev, [row.id]: row.started_at }));
+          setDraftCompletedMap((prev) => ({ ...prev, [row.id]: row.completed_at }));
         }
       )
       .on(
@@ -532,11 +534,11 @@ export default function DraftBoard({
             id: number;
             season_id: number;
             is_active: boolean;
-            started_at: string | null;
+            completed_at: string | null;
           };
           if (row.season_id !== activeSeasonId) return;
           setDraftActiveMap((prev) => ({ ...prev, [row.id]: row.is_active }));
-          setDraftStartedMap((prev) => ({ ...prev, [row.id]: row.started_at }));
+          setDraftCompletedMap((prev) => ({ ...prev, [row.id]: row.completed_at }));
         }
       )
       .on(
@@ -642,12 +644,12 @@ export default function DraftBoard({
   const isViewingOwnPool =
     userTeamId !== null && selectedPoolId !== null && selectedPoolId === userDraftPoolId;
   const myDraftEnded = userTeamId !== null && !!draftEndedMap[userTeamId];
-  const selectedDraftStarted = selectedPoolId !== null ? draftStartedMap[selectedPoolId] : null;
+  const selectedDraftCompleted = selectedPoolId !== null ? draftCompletedMap[selectedPoolId] : null;
   const clickMode: "draft" | "add" | null = !isViewingOwnPool
     ? null
     : isDraftActive && !myDraftEnded
       ? "draft"
-      : selectedDraftStarted
+      : selectedDraftCompleted
         ? "add"
         : null;
 

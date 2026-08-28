@@ -11,16 +11,20 @@ type ActionResult = { error: string | null };
 async function getDraftPoolState(
   admin: SupabaseClient,
   draftPoolId: number | null
-): Promise<{ isActive: boolean; startedAt: string | null }> {
-  if (draftPoolId === null) return { isActive: false, startedAt: null };
+): Promise<{ isActive: boolean; startedAt: string | null; completedAt: string | null }> {
+  if (draftPoolId === null) return { isActive: false, startedAt: null, completedAt: null };
 
   const { data } = await admin
     .from("draft_pools")
-    .select("is_active, started_at")
+    .select("is_active, started_at, completed_at")
     .eq("id", draftPoolId)
     .maybeSingle();
 
-  return { isActive: data?.is_active ?? false, startedAt: data?.started_at ?? null };
+  return {
+    isActive: data?.is_active ?? false,
+    startedAt: data?.started_at ?? null,
+    completedAt: data?.completed_at ?? null,
+  };
 }
 
 export async function submitDraftPick(pokemonId: number): Promise<ActionResult> {
@@ -32,9 +36,11 @@ export async function submitDraftPick(pokemonId: number): Promise<ActionResult> 
 
   if (!draftState.isActive) {
     return {
-      error: draftState.startedAt
+      error: draftState.completedAt
         ? "The draft has ended for your pool."
-        : "The draft hasn't started yet for your pool.",
+        : draftState.startedAt
+          ? "The draft is currently paused for your pool."
+          : "The draft hasn't started yet for your pool.",
     };
   }
 
@@ -60,11 +66,15 @@ async function submitFreeAgencyMove(
   const admin = createAdminClient();
   const draftState = await getDraftPoolState(admin, team.draftPoolId);
 
-  if (!draftState.startedAt) {
-    return { error: "Free agency opens once your draft pool has started." };
-  }
-  if (draftState.isActive) {
-    return { error: "The draft is still in progress for your pool." };
+  // Gated on completedAt specifically, not just "started and not currently
+  // active" — a paused or prematurely-ended draft (picks still outstanding)
+  // must not open free agency early.
+  if (!draftState.completedAt) {
+    return {
+      error: draftState.startedAt
+        ? "Free agency opens once every team in your pool has finished drafting."
+        : "Free agency opens once your draft pool has started.",
+    };
   }
 
   const { error: rpcError } = await admin.rpc("submit_free_agency_move", {

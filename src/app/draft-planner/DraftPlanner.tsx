@@ -466,13 +466,32 @@ function PokemonPicker({
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-interface Props { pokemon: PokemonWithMoves[] }
+// A real team's roster + season budget, deep-linked in from the Standings
+// page — just a starting point for the local sandbox below (this component
+// never writes anything back to the real team).
+export interface PreloadedTeam {
+  name: string;
+  budget: number;
+  pokemonIds: number[];
+}
 
-export default function DraftPlanner({ pokemon }: Props) {
-  const [teamName, setTeamName] = useState("My New Team");
+interface Props {
+  pokemon: PokemonWithMoves[];
+  preloadedTeam?: PreloadedTeam | null;
+}
+
+export default function DraftPlanner({ pokemon, preloadedTeam }: Props) {
+  const [teamName, setTeamName] = useState(preloadedTeam?.name ?? "My New Team");
   const [currentTeamId, setCurrentTeamId] = useState<string | null>(null);
-  const [slots, setSlots] = useState<(PokemonWithMoves | null)[]>(Array(SLOT_COUNT).fill(null));
-  const [budget, setBudget] = useState(DEFAULT_BUDGET);
+  const [slots, setSlots] = useState<(PokemonWithMoves | null)[]>(() => {
+    if (!preloadedTeam) return Array(SLOT_COUNT).fill(null);
+    const arr: (PokemonWithMoves | null)[] = Array(SLOT_COUNT).fill(null);
+    preloadedTeam.pokemonIds.slice(0, SLOT_COUNT).forEach((id, i) => {
+      arr[i] = pokemon.find((p) => p.id === id) ?? null;
+    });
+    return arr;
+  });
+  const [budget, setBudget] = useState(preloadedTeam?.budget ?? DEFAULT_BUDGET);
   const [showBudgetEdit, setShowBudgetEdit] = useState(false);
   const [brokenArtwork, setBrokenArtwork] = useState<Set<number>>(new Set());
   const [showLoadModal, setShowLoadModal] = useState(false);
@@ -547,6 +566,12 @@ export default function DraftPlanner({ pokemon }: Props) {
           <div className="flex items-center gap-1.5">
           <input type="text" value={teamName} onChange={(e) => setTeamName(e.target.value)}
             className="text-xl font-bold text-white bg-transparent border-b border-transparent hover:border-white/20 focus:border-white/40 focus:outline-none w-44 min-w-0" />
+
+          {preloadedTeam && (
+            <span className="text-[10px] font-semibold text-indigo-400 uppercase tracking-wide shrink-0">
+              From Standings
+            </span>
+          )}
 
           <button onClick={handleSave} title="Save team"
             className={`p-1.5 rounded transition-colors ${saveFlash ? "text-emerald-400" : "text-gray-500 hover:text-white"}`}>

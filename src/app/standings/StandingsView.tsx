@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import type { ConferenceStandings, TeamStanding } from "./types";
 
 function TeamLogo({ team }: { team: Pick<TeamStanding, "team_name" | "logo_url"> }) {
@@ -52,7 +53,13 @@ function GroupTable({ name, teams }: { name: string; teams: TeamStanding[] }) {
                     <div className="flex items-center gap-2 min-w-0">
                       <TeamLogo team={team} />
                       <div className="min-w-0">
-                        <span className="block text-gray-200 text-sm font-medium truncate">{team.team_name}</span>
+                        <Link
+                          href={`/draft-planner?teamId=${team.id}`}
+                          className="block text-gray-200 text-sm font-medium truncate hover:text-indigo-400 hover:underline transition-colors"
+                          title={`View ${team.team_name} in the Draft Planner`}
+                        >
+                          {team.team_name}
+                        </Link>
                         {team.coaches.length > 0 && (
                           <span className="block text-[11px] text-gray-500 truncate">
                             {team.coaches.join(", ")}

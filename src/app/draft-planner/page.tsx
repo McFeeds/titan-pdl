@@ -1,10 +1,15 @@
 import { createClient } from "@/lib/supabase/server";
-import DraftPlanner from "./DraftPlanner";
+import DraftPlanner, { type PreloadedTeam } from "./DraftPlanner";
 import type { PokemonWithMoves } from "@/types/database";
 
 export const metadata = { title: "Draft Planner | Titan PDL" };
 
-export default async function DraftPlannerPage() {
+export default async function DraftPlannerPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ teamId?: string }>;
+}) {
+  const { teamId: teamIdRaw } = await searchParams;
   const supabase = await createClient();
 
   const { data: rawPokemon } = await supabase
@@ -23,5 +28,32 @@ export default async function DraftPlannerPage() {
   }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return <DraftPlanner pokemon={pokemon} />;
+  // Deep-link from the Standings page ("view this team in the planner") —
+  // preload the team's current-season roster + point budget as a starting
+  // point. Purely a starting point for the local sandbox: nothing here
+  // ever writes back to the real team.
+  let preloadedTeam: PreloadedTeam | null = null;
+  const teamId = teamIdRaw ? Number(teamIdRaw) : null;
+  if (teamId) {
+    const [{ data: team }, { data: activeSeason }] = await Promise.all([
+      supabase.from("teams").select("team_name").eq("id", teamId).maybeSingle(),
+      supabase.from("seasons").select("id, point_budget").eq("is_active", true).limit(1).maybeSingle(),
+    ]);
+
+    if (team && activeSeason) {
+      const { data: roster } = await supabase
+        .from("rosters")
+        .select("pokemon_id")
+        .eq("team_id", teamId)
+        .eq("season_id", activeSeason.id);
+
+      preloadedTeam = {
+        name: team.team_name,
+        budget: activeSeason.point_budget,
+        pokemonIds: (roster ?? []).map((r) => r.pokemon_id),
+      };
+    }
+  }
+
+  return <DraftPlanner pokemon={pokemon} preloadedTeam={preloadedTeam} />;
 }

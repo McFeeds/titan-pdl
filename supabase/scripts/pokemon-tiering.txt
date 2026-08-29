@@ -754,3 +754,4 @@ Poltchageist	7
 Torchic	1
 Treecko	1
 Floatzel	11
+Sneasel-Hisui	9

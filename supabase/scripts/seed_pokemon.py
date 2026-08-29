@@ -374,6 +374,70 @@ def _resolve_learnset(species_id: str, learnset_source: dict) -> dict:
     return {}
 
 
+def _available_showdown_ids(
+    species_id: str, base_learnsets: dict, champions_learnsets: dict
+) -> set[str]:
+    """Showdown move IDs a single species can learn on its own, per source
+    priority: Champions mod (if present) else base learnsets with
+    generation-priority filtering."""
+    learnset = _resolve_learnset(species_id, champions_learnsets)
+    if learnset:
+        return set(learnset.keys())
+
+    learnset = _resolve_learnset(species_id, base_learnsets)
+    if not learnset:
+        return set()
+    return _moves_by_priority(learnset)
+
+
+_species_cache: dict[str, dict | None] = {}
+
+
+def fetch_species(slug: str) -> dict | None:
+    """Fetch /pokemon-species/{slug}, used to walk evolution chains for
+    pre-evolution move inheritance. Cached like fetch_pokemon."""
+    if slug in _species_cache:
+        return _species_cache[slug]
+    resp = _get_with_retry(f"{POKEAPI_BASE}/pokemon-species/{slug}")
+    if resp.status_code == 404:
+        _species_cache[slug] = None
+        return None
+    resp.raise_for_status()
+    time.sleep(REQUEST_DELAY)
+    data = resp.json()
+    _species_cache[slug] = data
+    return data
+
+
+def get_prevo_chain_species_ids(species_name: str) -> list[str]:
+    """Return Showdown IDs for every pre-evolution species ancestor of
+    species_name, nearest first (e.g. 'rillaboom' -> ['thwackey', 'grookey']).
+
+    A Pokemon can be taught any move its pre-evolution can learn (level-up,
+    TM, tutor, or egg move) and keep it through evolution — a core game
+    mechanic Showdown's own learnsets.ts does NOT bake into an evolved
+    species' own entry (it computes this dynamically in the validator), so
+    it must be reconstructed here from PokeAPI's evolution-chain data.
+    """
+    chain: list[str] = []
+    current = species_name
+    seen: set[str] = {species_name}
+    while True:
+        species_data = fetch_species(current)
+        if species_data is None:
+            break
+        parent = species_data.get("evolves_from_species")
+        if not parent:
+            break
+        parent_name = parent["name"]
+        if parent_name in seen:
+            break  # guard against any unexpected cycle
+        chain.append(parent_name)
+        seen.add(parent_name)
+        current = parent_name
+    return chain
+
+
 def get_learnable_slugs(
     api_data: dict,
     base_learnsets: dict,
@@ -387,29 +451,27 @@ def get_learnable_slugs(
     form-specific one; is_form reports whether this row itself is such a
     variant (its own name differs from its base species).
 
-    Priority:
-      1. Champions mod learnset for the base species.
-      2. Base learnsets for the base species, with generation priority
+    For each species (the Pokemon itself, plus every pre-evolution in its
+    chain — e.g. Rillaboom also inherits from Thwackey and Grookey), moves
+    are resolved with priority:
+      1. Champions mod learnset for that species.
+      2. Base learnsets for that species, with generation priority
          (Gen 9 → Gen 8 → … → Gen 1).
+    The results are unioned, matching real evolution mechanics (teach the
+    move to the pre-evolution, then evolve).
     """
     showdown_to_slug = {slug.replace("-", ""): slug for slug in move_slugs}
     species_name = api_data.get("species", {}).get("name", "") or api_data["name"]
     species_id = _showdown_id(species_name)
     is_form = species_id != _showdown_id(api_data["name"])
 
-    # 1. Champions mod
-    learnset = _resolve_learnset(species_id, champions_learnsets)
-    if learnset:
-        available = set(learnset.keys())
-        return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, is_form
-
-    # 2. Base learnsets with generation-priority filtering
-    learnset = _resolve_learnset(species_id, base_learnsets)
-    if not learnset:
+    if not _resolve_learnset(species_id, champions_learnsets) and not _resolve_learnset(species_id, base_learnsets):
         print(f"  [WARN] No Showdown learnset for '{api_data['name']}' (national dex species: {species_id})")
-        return set(), is_form
 
-    available = _moves_by_priority(learnset)
+    available = set(_available_showdown_ids(species_id, base_learnsets, champions_learnsets))
+    for prevo_name in get_prevo_chain_species_ids(species_name):
+        available |= _available_showdown_ids(_showdown_id(prevo_name), base_learnsets, champions_learnsets)
+
     return {showdown_to_slug[sid] for sid in showdown_to_slug if sid in available}, is_form
 
 

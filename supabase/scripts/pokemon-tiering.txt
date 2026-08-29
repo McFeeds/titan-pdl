@@ -748,3 +748,8 @@ Staryu	1
 Larvesta	1
 Pineco	1
 Ralts	1
+Zygarde	19
+Shuckle	8
+Poltchageist	7
+Torchic	1
+Treecko	1

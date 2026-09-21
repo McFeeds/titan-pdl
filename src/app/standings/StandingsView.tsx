@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import type { ConferenceStandings, TeamStanding } from "./types";
+import KillLeadersTable from "./KillLeadersTable";
+import type { ConferenceStandings, TeamStanding, KillLeaderRow } from "./types";
 
 function TeamLogo({ team }: { team: Pick<TeamStanding, "team_name" | "logo_url"> }) {
   return team.logo_url ? (
@@ -98,7 +99,14 @@ function GroupTable({ name, teams }: { name: string; teams: TeamStanding[] }) {
   );
 }
 
-export default function StandingsView({ standings }: { standings: ConferenceStandings[] }) {
+export default function StandingsView({
+  standings,
+  killLeaders,
+}: {
+  standings: ConferenceStandings[];
+  killLeaders: KillLeaderRow[];
+}) {
+  const [activeTab, setActiveTab] = useState<"standings" | "kill-leaders">("standings");
   const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(
     standings[0]?.id ?? null
   );
@@ -113,37 +121,60 @@ export default function StandingsView({ standings }: { standings: ConferenceStan
           <p className="text-sm text-gray-500 mt-1">Current season records by group</p>
         </div>
 
-        {standings.length === 0 ? (
-          <p className="text-gray-600 text-sm italic mt-4">No conferences set up yet.</p>
-        ) : (
-          <>
-            <div className="flex gap-2 mb-6 flex-wrap">
-              {standings.map((conf) => (
-                <button
-                  key={conf.id}
-                  onClick={() => setSelectedConferenceId(conf.id)}
-                  className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                    selectedConferenceId === conf.id
-                      ? "bg-indigo-600 text-white"
-                      : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
-                  }`}
-                >
-                  {conf.name}
-                </button>
-              ))}
-            </div>
+        <div className="flex gap-2 mb-6 border-b border-white/10">
+          {([
+            { key: "standings", label: "Standings" },
+            { key: "kill-leaders", label: "Kill Leaders" },
+          ] as const).map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                activeTab === tab.key
+                  ? "border-indigo-500 text-white"
+                  : "border-transparent text-gray-500 hover:text-gray-300"
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-            {selectedConference &&
-              (selectedConference.groups.length === 0 ? (
-                <p className="text-gray-600 text-sm italic">No teams placed in this conference yet.</p>
-              ) : (
-                <div className="grid gap-5 grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
-                  {selectedConference.groups.map((g) => (
-                    <GroupTable key={g.id} name={g.name} teams={g.teams} />
-                  ))}
-                </div>
-              ))}
-          </>
+        {activeTab === "standings" ? (
+          standings.length === 0 ? (
+            <p className="text-gray-600 text-sm italic mt-4">No conferences set up yet.</p>
+          ) : (
+            <>
+              <div className="flex gap-2 mb-6 flex-wrap">
+                {standings.map((conf) => (
+                  <button
+                    key={conf.id}
+                    onClick={() => setSelectedConferenceId(conf.id)}
+                    className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                      selectedConferenceId === conf.id
+                        ? "bg-indigo-600 text-white"
+                        : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
+                    }`}
+                  >
+                    {conf.name}
+                  </button>
+                ))}
+              </div>
+
+              {selectedConference &&
+                (selectedConference.groups.length === 0 ? (
+                  <p className="text-gray-600 text-sm italic">No teams placed in this conference yet.</p>
+                ) : (
+                  <div className="grid gap-5 grid-cols-[repeat(auto-fit,minmax(340px,1fr))]">
+                    {selectedConference.groups.map((g) => (
+                      <GroupTable key={g.id} name={g.name} teams={g.teams} />
+                    ))}
+                  </div>
+                ))}
+            </>
+          )
+        ) : (
+          <KillLeadersTable rows={killLeaders} />
         )}
       </div>
     </main>

@@ -22,3 +22,18 @@ export interface ConferenceStandings {
   name: string;
   groups: GroupStandings[];
 }
+
+export interface KillLeaderRow {
+  pokemon_id: number;
+  pokemon_name: string;
+  dex_number: number | null;
+  type_1: string;
+  type_2: string | null;
+  team_id: number;
+  team_name: string;
+  conference_name: string | null;
+  group_name: string | null;
+  brought: number;
+  kills: number;
+  deaths: number;
+}

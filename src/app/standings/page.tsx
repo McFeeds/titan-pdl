@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getMatchComponents, recordFromComponents } from "@/lib/matchRecord";
 import UnderConstruction from "@/components/UnderConstruction";
 import StandingsView from "./StandingsView";
-import type { ConferenceStandings, TeamStanding } from "./types";
+import type { ConferenceStandings, TeamStanding, KillLeaderRow } from "./types";
 
 export const metadata = { title: "Standings | Titan PDL" };
 
@@ -19,7 +19,14 @@ export default async function StandingsPage() {
     return <UnderConstruction title="Current League" />;
   }
 
-  const [{ data: rawMatches }, { data: teamSeasons }, { data: teams }, { data: teamMembers }] = await Promise.all([
+  const [
+    { data: rawMatches },
+    { data: teamSeasons },
+    { data: teams },
+    { data: teamMembers },
+    { data: seasonStats },
+    { data: allPokemon },
+  ] = await Promise.all([
     supabase
       .from("matches")
       .select("id, home_team_id, away_team_id, match_games(game_number, game_type, winner_team_id)")
@@ -34,6 +41,11 @@ export default async function StandingsPage() {
       .select("team_id, discord_id")
       .eq("season_id", activeSeason.id)
       .order("discord_id"),
+    supabase
+      .from("pokemon_season_stats")
+      .select("team_id, pokemon_id, brought, kills, deaths")
+      .eq("season_id", activeSeason.id),
+    supabase.from("pokemon").select("id, name, dex_number, type_1, type_2"),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -224,5 +236,36 @@ export default async function StandingsPage() {
     return { id: conf.id, name: conf.name, groups: allGroups };
   });
 
-  return <StandingsView standings={standings} />;
+  // Kill Leaders: every pokemon's aggregated stats for the active season,
+  // across every team/conference/group — a flat leaderboard rather than the
+  // per-group standings above.
+  const pokemonMap = new Map((allPokemon ?? []).map((p) => [p.id, p]));
+  const conferenceNameById = new Map((conferences ?? []).map((c) => [c.id, c.name]));
+  const groupNameById = new Map((groups ?? []).map((g) => [g.id, g.name]));
+  const teamSeasonByTeam = new Map((teamSeasons ?? []).map((ts) => [ts.team_id, ts]));
+
+  const killLeaders: KillLeaderRow[] = (seasonStats ?? [])
+    .map((s): KillLeaderRow | null => {
+      const pokemon = pokemonMap.get(s.pokemon_id);
+      const team = teamMap.get(s.team_id);
+      if (!pokemon || !team) return null;
+      const ts = teamSeasonByTeam.get(s.team_id);
+      return {
+        pokemon_id: s.pokemon_id,
+        pokemon_name: pokemon.name,
+        dex_number: pokemon.dex_number,
+        type_1: pokemon.type_1,
+        type_2: pokemon.type_2,
+        team_id: s.team_id,
+        team_name: team.team_name,
+        conference_name: ts?.conference_id != null ? conferenceNameById.get(ts.conference_id) ?? null : null,
+        group_name: ts?.group_id != null ? groupNameById.get(ts.group_id) ?? null : null,
+        brought: s.brought,
+        kills: s.kills,
+        deaths: s.deaths,
+      };
+    })
+    .filter((row): row is KillLeaderRow => row !== null);
+
+  return <StandingsView standings={standings} killLeaders={killLeaders} />;
 }

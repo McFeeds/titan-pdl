@@ -171,9 +171,12 @@ export function parseShowdownLog(logText: string): ParsedGameResult {
 
       case "win": {
         // |win|McFeeds
-        const winnerUsername = parts[2];
-        if (winnerUsername === result.p1Username) result.winner = "p1";
-        else if (winnerUsername === result.p2Username) result.winner = "p2";
+        // Showdown doesn't enforce case uniqueness on usernames, so the
+        // casing on this line isn't guaranteed to match the casing from
+        // the earlier |player| line for the same user — compare lowercased.
+        const winnerUsername = parts[2].toLowerCase();
+        if (winnerUsername === result.p1Username.toLowerCase()) result.winner = "p1";
+        else if (winnerUsername === result.p2Username.toLowerCase()) result.winner = "p2";
         break;
       }
     }

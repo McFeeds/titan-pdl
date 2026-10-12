@@ -30,6 +30,7 @@ type MatchGame = {
   game_type: GameType;
   winner_team_id: number | null;
   replay_url: string | null;
+  is_forfeit: boolean;
   match_game_pokemon: MatchGamePokemon[];
 };
 
@@ -78,6 +79,7 @@ function GameSection({
   const [addHomeState, addHomeAction, addHomePending] = useActionState(addMatchGamePokemon, null);
   const [addAwayState, addAwayAction, addAwayPending] = useActionState(addMatchGamePokemon, null);
   const [removePending, startRemove] = useTransition();
+  const [isForfeit, setIsForfeit] = useState(game?.is_forfeit ?? false);
 
   const homePokemon = (game?.match_game_pokemon ?? []).filter(
     (p) => p.team_id === homeTeam.id
@@ -102,7 +104,14 @@ function GameSection({
 
   return (
     <div className="border border-white/10 rounded-xl p-5 flex flex-col gap-5">
-      <h3 className="text-base font-semibold text-white">{heading}</h3>
+      <h3 className="text-base font-semibold text-white flex items-center gap-2">
+        {heading}
+        {game?.is_forfeit && (
+          <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded">
+            Forfeit
+          </span>
+        )}
+      </h3>
 
       {/* Winner + replay */}
       <form action={gameAction} className="flex flex-col gap-3">
@@ -122,14 +131,28 @@ function GameSection({
               <option value={awayTeam.id}>{awayTeam.team_name}</option>
             </select>
           </div>
-          <div className="flex-1 min-w-48">
-            <label className="block text-xs text-gray-400 mb-1">Replay URL</label>
-            <input
-              name="replay_url"
-              defaultValue={game?.replay_url ?? ""}
-              placeholder="https://replay.pokemonshowdown.com/..."
-              className={`${inputCls} w-full`}
-            />
+          {!isForfeit && (
+            <div className="flex-1 min-w-48">
+              <label className="block text-xs text-gray-400 mb-1">Replay URL</label>
+              <input
+                name="replay_url"
+                defaultValue={game?.replay_url ?? ""}
+                placeholder="https://replay.pokemonshowdown.com/..."
+                className={`${inputCls} w-full`}
+              />
+            </div>
+          )}
+          <div className="self-end">
+            <label className="flex items-center gap-1.5 text-xs text-gray-400 mb-[9px] cursor-pointer select-none">
+              <input
+                type="checkbox"
+                name="is_forfeit"
+                checked={isForfeit}
+                onChange={(e) => setIsForfeit(e.target.checked)}
+                className="accent-amber-500"
+              />
+              Forfeit
+            </label>
           </div>
           <div className="self-end">
             <button
@@ -141,6 +164,11 @@ function GameSection({
             </button>
           </div>
         </div>
+        {isForfeit && (
+          <p className="text-xs text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+            Pick the winner above — the other team is recorded as forfeiting this game, with no replay or Pokémon stats.
+          </p>
+        )}
         {gameState?.error && (
           <p className="text-red-400 text-xs">{gameState.error}</p>
         )}

@@ -24,13 +24,25 @@ export interface TeamGameData {
 export interface GameAnalysis {
   gameType: GameType;
   gameNumber: number;
-  replayUrl: string;
+  replayUrl: string | null;
   winnerTeamName: string | null;
+  isForfeit: boolean;
+  forfeitedTeamName?: string;
   teams: [TeamGameData, TeamGameData];
 }
 
 export interface MatchAnalysis {
   games: GameAnalysis[];
+}
+
+// One submitted game slot: either a replay to parse, or a forfeit — never
+// both. "me"/"opponent" is resolved against the caller's own team server
+// side (see resolveMatchSetup), never trusted as a client-supplied team id.
+export interface SubmittedGame {
+  gameType: GameType;
+  gameNumber: number;
+  replayUrl?: string;
+  forfeitedBy?: "me" | "opponent";
 }
 
 // ---------- Internal helpers ----------
@@ -182,6 +194,19 @@ async function fetchAndParseLog(
   }
 }
 
+// A forfeit names the loser relative to the caller ("me"/"opponent"); this
+// resolves that to the match's actual home/away team ids and the winner.
+function resolveForfeit(
+  forfeitedBy: "me" | "opponent",
+  myTeamId: number,
+  match: MatchSetup["match"]
+): { loserTeamId: number; winnerTeamId: number } {
+  const opponentTeamId = match.home_team_id === myTeamId ? match.away_team_id : match.home_team_id;
+  const loserTeamId = forfeitedBy === "me" ? myTeamId : opponentTeamId;
+  const winnerTeamId = loserTeamId === myTeamId ? opponentTeamId : myTeamId;
+  return { loserTeamId, winnerTeamId };
+}
+
 function resolveTeams(
   parsed: ReturnType<typeof parseShowdownLog>,
   membersByTeam: Record<number, string[]>,
@@ -241,7 +266,7 @@ export async function updateRosterNickname(
 // Fetch and parse replays, return a preview for confirmation — no DB writes.
 export async function analyzeMatchResults(
   matchId: number,
-  games: { gameType: GameType; gameNumber: number; replayUrl: string }[]
+  games: SubmittedGame[]
 ): Promise<{ analysis: MatchAnalysis | null; error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -253,12 +278,29 @@ export async function analyzeMatchResults(
   const { setup, error: setupError } = await resolveMatchSetup(matchId, discordUsername);
   if (!setup) return { analysis: null, error: setupError };
 
-  const { myTeamId, teamNames, membersByTeam, rosterByTeam } = setup;
+  const { match, myTeamId, teamNames, membersByTeam, rosterByTeam } = setup;
 
   const gameAnalyses: GameAnalysis[] = [];
 
   for (const game of games) {
-    const rawUrl = game.replayUrl.trim();
+    if (game.forfeitedBy) {
+      const { loserTeamId, winnerTeamId } = resolveForfeit(game.forfeitedBy, myTeamId, match);
+      gameAnalyses.push({
+        gameType: game.gameType,
+        gameNumber: game.gameNumber,
+        replayUrl: null,
+        winnerTeamName: teamNames.get(winnerTeamId) ?? null,
+        isForfeit: true,
+        forfeitedTeamName: teamNames.get(loserTeamId) ?? "Unknown",
+        teams: [
+          { teamName: teamNames.get(match.home_team_id) ?? "Unknown", isMyTeam: match.home_team_id === myTeamId, pokemon: [] },
+          { teamName: teamNames.get(match.away_team_id) ?? "Unknown", isMyTeam: match.away_team_id === myTeamId, pokemon: [] },
+        ],
+      });
+      continue;
+    }
+
+    const rawUrl = (game.replayUrl ?? "").trim();
     if (!rawUrl) continue;
 
     const replayUrl = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
@@ -298,6 +340,7 @@ export async function analyzeMatchResults(
       gameNumber: game.gameNumber,
       replayUrl,
       winnerTeamName: winnerTeamId ? (teamNames.get(winnerTeamId) ?? null) : null,
+      isForfeit: false,
       teams: [
         buildTeamData(p1TeamId, parsed.p1Selected, parsed.p1Stats),
         buildTeamData(p2TeamId, parsed.p2Selected, parsed.p2Stats),
@@ -311,7 +354,7 @@ export async function analyzeMatchResults(
 // Write confirmed results to the database.
 export async function submitMatchResults(
   matchId: number,
-  games: { gameType: GameType; gameNumber: number; replayUrl: string }[]
+  games: SubmittedGame[]
 ): Promise<{ error: string | null }> {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -323,7 +366,7 @@ export async function submitMatchResults(
   const { setup, error: setupError } = await resolveMatchSetup(matchId, discordUsername);
   if (!setup) return { error: setupError };
 
-  const { match, membersByTeam, rosterByTeam, admin } = setup;
+  const { match, myTeamId, membersByTeam, rosterByTeam, admin } = setup;
 
   const { data: existingGames } = await admin
     .from("match_games")
@@ -336,7 +379,25 @@ export async function submitMatchResults(
   }
 
   for (const game of games) {
-    const rawUrl = game.replayUrl.trim();
+    if (game.forfeitedBy) {
+      const { winnerTeamId } = resolveForfeit(game.forfeitedBy, myTeamId, match);
+      const { data: gameRow, error: gameError } = await admin
+        .from("match_games")
+        .upsert(
+          { match_id: matchId, game_number: game.gameNumber, game_type: game.gameType, winner_team_id: winnerTeamId, replay_url: null, is_forfeit: true },
+          { onConflict: "match_id,game_type,game_number" }
+        )
+        .select("id")
+        .single();
+
+      if (gameError || !gameRow) {
+        return { error: `Failed to save game ${game.gameNumber}: ${gameError?.message ?? "unknown error"}` };
+      }
+      await admin.from("match_game_pokemon").delete().eq("match_game_id", gameRow.id as number);
+      continue;
+    }
+
+    const rawUrl = (game.replayUrl ?? "").trim();
     if (!rawUrl) continue;
 
     const replayUrl = rawUrl.startsWith("http") ? rawUrl : `https://${rawUrl}`;
@@ -356,7 +417,7 @@ export async function submitMatchResults(
     const { data: gameRow, error: gameError } = await admin
       .from("match_games")
       .upsert(
-        { match_id: matchId, game_number: game.gameNumber, game_type: game.gameType, winner_team_id: winnerTeamId, replay_url: replayUrl },
+        { match_id: matchId, game_number: game.gameNumber, game_type: game.gameType, winner_team_id: winnerTeamId, replay_url: replayUrl, is_forfeit: false },
         { onConflict: "match_id,game_type,game_number" }
       )
       .select("id")

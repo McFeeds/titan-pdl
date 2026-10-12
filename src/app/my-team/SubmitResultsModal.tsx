@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { analyzeMatchResults, submitMatchResults } from "./actions";
-import type { MatchAnalysis, GameAnalysis } from "./actions";
+import type { MatchAnalysis, GameAnalysis, SubmittedGame } from "./actions";
 import type { MatchFormat, GameType } from "@/types/database";
 
 interface Props {
@@ -37,14 +37,21 @@ function slotsForFormat(format: MatchFormat): Slot[] {
   ];
 }
 
-// Minimum filled-in replays needed before results can be analyzed: for
-// singles_doubles that's the singles game plus at least 2 of 3 doubles
-// games (same "at least 2 of 3" rule bo3 has always used).
+// Minimum filled-in games (replay or forfeit) needed before results can be
+// analyzed: for singles_doubles that's the singles game plus at least 2 of
+// 3 doubles games (same "at least 2 of 3" rule bo3 has always used).
 function minRequired(format: MatchFormat): number {
   return format === "singles_doubles" ? 3 : 2;
 }
 
 type Phase = "form" | "analyzing" | "confirming" | "submitting" | "success";
+
+// Per-slot result entry: a replay URL to parse, or a forfeit by one side.
+type ResultMode = "replay" | "forfeit_me" | "forfeit_opponent";
+interface SlotEntry {
+  mode: ResultMode;
+  url: string;
+}
 
 // ---------- Confirmation summary ----------
 
@@ -86,10 +93,19 @@ function GameSummary({ game, showType }: { game: GameAnalysis; showType: boolean
             <span className="text-[11px] font-semibold text-emerald-400">{game.winnerTeamName} wins</span>
           </>
         )}
+        {game.isForfeit && (
+          <span className="text-[10px] font-bold text-amber-400 uppercase tracking-wider px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded">
+            Forfeit
+          </span>
+        )}
       </div>
-      {game.teams.map((team) => (
-        <TeamBlock key={team.teamName} team={team} />
-      ))}
+      {game.isForfeit ? (
+        <p className="text-xs text-gray-500">
+          {game.forfeitedTeamName} forfeited this game.
+        </p>
+      ) : (
+        game.teams.map((team) => <TeamBlock key={team.teamName} team={team} />)
+      )}
     </div>
   );
 }
@@ -101,18 +117,35 @@ export default function SubmitResultsModal({ matchId, weekNumber, opponentName, 
   const required = minRequired(matchFormat);
 
   const [phase, setPhase] = useState<Phase>("form");
-  const [urls, setUrls] = useState<string[]>(slots.map(() => ""));
+  const [slotEntries, setSlotEntries] = useState<SlotEntry[]>(
+    slots.map(() => ({ mode: "replay", url: "" }))
+  );
   const [analysis, setAnalysis] = useState<MatchAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   function setUrl(i: number, val: string) {
-    setUrls((prev) => prev.map((u, idx) => (idx === i ? val : u)));
+    setSlotEntries((prev) => prev.map((s, idx) => (idx === i ? { ...s, url: val } : s)));
   }
 
-  function buildGames() {
-    return urls
-      .map((url, i) => ({ gameType: slots[i].gameType, gameNumber: slots[i].gameNumber, replayUrl: url.trim() }))
-      .filter((g) => g.replayUrl !== "");
+  function setMode(i: number, mode: ResultMode) {
+    setSlotEntries((prev) => prev.map((s, idx) => (idx === i ? { ...s, mode } : s)));
+  }
+
+  function buildGames(): SubmittedGame[] {
+    return slotEntries
+      .map((entry, i): SubmittedGame | null => {
+        const slot = slots[i];
+        if (entry.mode === "forfeit_me") {
+          return { gameType: slot.gameType, gameNumber: slot.gameNumber, forfeitedBy: "me" };
+        }
+        if (entry.mode === "forfeit_opponent") {
+          return { gameType: slot.gameType, gameNumber: slot.gameNumber, forfeitedBy: "opponent" };
+        }
+        const replayUrl = entry.url.trim();
+        if (!replayUrl) return null;
+        return { gameType: slot.gameType, gameNumber: slot.gameNumber, replayUrl };
+      })
+      .filter((g): g is SubmittedGame => g !== null);
   }
 
   async function handleAnalyze() {
@@ -121,7 +154,7 @@ export default function SubmitResultsModal({ matchId, weekNumber, opponentName, 
     const games = buildGames();
 
     if (games.length < required) {
-      setError(`Please provide replay links for at least ${required} games.`);
+      setError(`Please provide a replay link or mark a forfeit for at least ${required} games.`);
       return;
     }
 
@@ -200,24 +233,47 @@ export default function SubmitResultsModal({ matchId, weekNumber, opponentName, 
           {(phase === "form" || phase === "analyzing") && (
             <form id="replay-form" onSubmit={(e) => { e.preventDefault(); handleAnalyze(); }} className="flex flex-col gap-4">
               <p className="text-xs text-gray-500 leading-relaxed">
-                Paste the Pokémon Showdown replay links below. Stats will be parsed automatically — you&apos;ll review them before anything is saved.
+                Paste the Pokémon Showdown replay links below. Stats will be parsed automatically — you&apos;ll review them before anything is saved. If a game wasn&apos;t played, mark it as a forfeit instead.
               </p>
-              {slots.map((slot, i) => (
-                <div key={`${slot.gameType}-${slot.gameNumber}`}>
-                  <label className="block text-[11px] font-semibold text-gray-400 mb-1.5 uppercase tracking-wider">
-                    {slot.label}
-                  </label>
-                  <input
-                    type="url"
-                    value={urls[i]}
-                    onChange={(e) => setUrl(i, e.target.value)}
-                    placeholder="https://replay.pokemonshowdown.com/…"
-                    required={slot.required}
-                    disabled={phase === "analyzing"}
-                    className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder:text-gray-700 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition disabled:opacity-50"
-                  />
-                </div>
-              ))}
+              {slots.map((slot, i) => {
+                const entry = slotEntries[i];
+                return (
+                  <div key={`${slot.gameType}-${slot.gameNumber}`}>
+                    <div className="flex items-center justify-between gap-2 mb-1.5">
+                      <label className="block text-[11px] font-semibold text-gray-400 uppercase tracking-wider">
+                        {slot.label}
+                      </label>
+                      <select
+                        value={entry.mode}
+                        onChange={(e) => setMode(i, e.target.value as ResultMode)}
+                        disabled={phase === "analyzing"}
+                        className="bg-white/5 border border-white/10 rounded-md px-2 py-1 text-[10px] text-gray-400 outline-none focus:border-indigo-500/50 disabled:opacity-50"
+                      >
+                        <option value="replay">Replay</option>
+                        <option value="forfeit_opponent">Forfeit — {opponentName} forfeits</option>
+                        <option value="forfeit_me">Forfeit — We forfeit</option>
+                      </select>
+                    </div>
+                    {entry.mode === "replay" ? (
+                      <input
+                        type="url"
+                        value={entry.url}
+                        onChange={(e) => setUrl(i, e.target.value)}
+                        placeholder="https://replay.pokemonshowdown.com/…"
+                        required={slot.required}
+                        disabled={phase === "analyzing"}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs text-gray-200 placeholder:text-gray-700 outline-none focus:border-indigo-500/50 focus:ring-1 focus:ring-indigo-500/30 transition disabled:opacity-50"
+                      />
+                    ) : (
+                      <p className="text-xs text-amber-400/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                        {entry.mode === "forfeit_opponent"
+                          ? `${opponentName} forfeits this game — it will be recorded as a loss for them.`
+                          : "We forfeit this game — it will be recorded as a loss for us."}
+                      </p>
+                    )}
+                  </div>
+                );
+              })}
             </form>
           )}
 

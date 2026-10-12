@@ -27,7 +27,7 @@ export default async function MatchDetailPage({
     supabase.from("teams").select("id, team_name").eq("id", match.away_team_id).single(),
     supabase
       .from("match_games")
-      .select("id, game_number, game_type, winner_team_id, replay_url, match_game_pokemon(id, team_id, pokemon_id, kills, deaths, pokemon(name))")
+      .select("id, game_number, game_type, winner_team_id, replay_url, is_forfeit, match_game_pokemon(id, team_id, pokemon_id, kills, deaths, pokemon(name))")
       .eq("match_id", Number(id))
       .order("game_number"),
     supabase.from("seasons").select("match_format").eq("id", match.season_id).single(),

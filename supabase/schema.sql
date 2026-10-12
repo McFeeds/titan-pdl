@@ -788,10 +788,12 @@ CREATE TABLE match_games (
   game_type      TEXT    NOT NULL DEFAULT 'doubles' CHECK (game_type IN ('singles', 'doubles')),
   winner_team_id INTEGER REFERENCES teams(id),
   replay_url     TEXT,
+  is_forfeit     BOOLEAN NOT NULL DEFAULT false,
   CHECK (
     (game_type = 'singles' AND game_number = 1) OR
     (game_type = 'doubles' AND game_number BETWEEN 1 AND 3)
   ),
+  CHECK (NOT is_forfeit OR winner_team_id IS NOT NULL),
   UNIQUE (match_id, game_type, game_number)
 );
 

@@ -140,14 +140,16 @@ export async function upsertMatchGame(_prevState: State, formData: FormData): Pr
   const game_number = Number(formData.get("game_number"));
   const game_type = ((formData.get("game_type") as string) || "doubles") as "singles" | "doubles";
   const winner_team_id = formData.get("winner_team_id") ? Number(formData.get("winner_team_id")) : null;
-  const replay_url = (formData.get("replay_url") as string)?.trim() || null;
+  const is_forfeit = formData.get("is_forfeit") === "on";
+  const replay_url = is_forfeit ? null : (formData.get("replay_url") as string)?.trim() || null;
 
   if (!match_id || !game_number) return { error: "match_id and game_number are required." };
+  if (is_forfeit && !winner_team_id) return { error: "A forfeit needs a winner selected." };
 
   const admin = createAdminClient();
   const { error } = await admin
     .from("match_games")
-    .upsert({ match_id, game_number, game_type, winner_team_id, replay_url }, { onConflict: "match_id,game_type,game_number" });
+    .upsert({ match_id, game_number, game_type, winner_team_id, replay_url, is_forfeit }, { onConflict: "match_id,game_type,game_number" });
 
   if (error) return { error: error.message };
 

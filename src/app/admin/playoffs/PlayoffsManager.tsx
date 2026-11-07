@@ -7,40 +7,40 @@ const selectCls =
   "px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
 
 type Season = { id: number; name: string; is_active: boolean };
-type Conference = { id: number; name: string };
 type Team = { id: number; team_name: string };
-type Slot = { id: number; season_id: number; conference_id: number; round: number; position: number; team_id: number | null };
+type Slot = { id: number; season_id: number; round: number; position: number; team_id: number | null };
 
 type Props = {
   seasons: Season[];
-  conferences: Conference[];
   teams: Team[];
   slots: Slot[];
 };
 
-const SIZES = [2, 4, 8, 16] as const;
+const SIZES = [2, 4, 8, 12, 16] as const;
 
-// Human label for a round, counting back from the final (0 = final).
-function roundLabel(roundsFromEnd: number): string {
-  if (roundsFromEnd === 0) return "Final";
-  if (roundsFromEnd === 1) return "Semifinals";
-  if (roundsFromEnd === 2) return "Quarterfinals";
-  return `Round ${roundsFromEnd + 1} of 16`;
+// Labels per bracket shape, keyed by "<round-1 slot count>-<total rounds>" —
+// the only two numbers needed to disambiguate every size we support,
+// including the 12-team bracket sharing round 1's slot count (8) with the
+// 8-team bracket but needing one more round for its bye structure.
+const ROUND_LABELS: Record<string, string[]> = {
+  "2-1": ["Final"],
+  "4-2": ["Semifinals", "Final"],
+  "8-3": ["Quarterfinals", "Semifinals", "Final"],
+  "8-4": ["First Round", "Quarterfinals", "Semifinals", "Final"],
+  "16-4": ["Round of 16", "Quarterfinals", "Semifinals", "Final"],
+};
+
+function roundLabel(firstRoundSlotCount: number, totalRounds: number, roundIdx: number): string {
+  const key = `${firstRoundSlotCount}-${totalRounds}`;
+  return ROUND_LABELS[key]?.[roundIdx] ?? `Round ${roundIdx + 1}`;
 }
 
-function BracketSlotSelect({
-  slot,
-  teams,
-}: {
-  slot: Slot;
-  teams: Team[];
-}) {
+function BracketSlotSelect({ slot, teams }: { slot: Slot; teams: Team[] }) {
   const [state, action, pending] = useActionState(setBracketSlotTeam, null);
 
   return (
     <form action={action} className="flex items-center gap-2">
       <input type="hidden" name="season_id" value={slot.season_id} />
-      <input type="hidden" name="conference_id" value={slot.conference_id} />
       <input type="hidden" name="round" value={slot.round} />
       <input type="hidden" name="position" value={slot.position} />
       <select
@@ -60,20 +60,21 @@ function BracketSlotSelect({
   );
 }
 
-function CreateBracketForm({ seasonId, conferenceId }: { seasonId: number; conferenceId: number }) {
+function CreateBracketForm({ seasonId }: { seasonId: number }) {
   const [state, action, pending] = useActionState(createBracket, null);
 
   return (
     <form action={action} className="flex flex-col gap-3 items-start">
       <input type="hidden" name="season_id" value={seasonId} />
-      <input type="hidden" name="conference_id" value={conferenceId} />
-      <p className="text-sm text-gray-400">No bracket set up yet for this season/conference.</p>
+      <p className="text-sm text-gray-400">No bracket set up yet for this season.</p>
       <div className="flex items-end gap-3">
         <div>
           <label className="block text-xs text-gray-400 mb-1">Bracket size</label>
-          <select name="size" defaultValue={8} className={`${selectCls} w-36`}>
+          <select name="size" defaultValue={8} className={`${selectCls} w-56`}>
             {SIZES.map((s) => (
-              <option key={s} value={s}>{s} teams</option>
+              <option key={s} value={s}>
+                {s} teams{s === 12 ? " (top 4 seeds bye)" : ""}
+              </option>
             ))}
           </select>
         </div>
@@ -90,7 +91,7 @@ function CreateBracketForm({ seasonId, conferenceId }: { seasonId: number; confe
   );
 }
 
-function ClearBracketButton({ seasonId, conferenceId }: { seasonId: number; conferenceId: number }) {
+function ClearBracketButton({ seasonId }: { seasonId: number }) {
   const [state, action, pending] = useActionState(clearBracket, null);
   const [confirming, setConfirming] = useState(false);
 
@@ -108,7 +109,6 @@ function ClearBracketButton({ seasonId, conferenceId }: { seasonId: number; conf
   return (
     <form action={action} className="flex items-center gap-2">
       <input type="hidden" name="season_id" value={seasonId} />
-      <input type="hidden" name="conference_id" value={conferenceId} />
       <span className="text-xs text-gray-400">Delete this whole bracket?</span>
       <button
         type="submit"
@@ -129,16 +129,15 @@ function ClearBracketButton({ seasonId, conferenceId }: { seasonId: number; conf
   );
 }
 
-export default function PlayoffsManager({ seasons, conferences, teams, slots }: Props) {
+export default function PlayoffsManager({ seasons, teams, slots }: Props) {
   const activeSeason = seasons.find((s) => s.is_active) ?? seasons[0] ?? null;
   const [seasonId, setSeasonId] = useState<number | null>(activeSeason?.id ?? null);
-  const [conferenceId, setConferenceId] = useState<number | null>(conferences[0]?.id ?? null);
 
-  if (!seasonId || !conferenceId) {
-    return <p className="text-gray-500 text-sm">Set up a season and conference first.</p>;
+  if (!seasonId) {
+    return <p className="text-gray-500 text-sm">Set up a season first.</p>;
   }
 
-  const bracketSlots = slots.filter((s) => s.season_id === seasonId && s.conference_id === conferenceId);
+  const bracketSlots = slots.filter((s) => s.season_id === seasonId);
 
   const roundsMap = new Map<number, Slot[]>();
   for (const s of bracketSlots) {
@@ -148,6 +147,7 @@ export default function PlayoffsManager({ seasons, conferences, teams, slots }: 
   }
   const rounds = [...roundsMap.keys()].sort((a, b) => a - b);
   const totalRounds = rounds.length;
+  const firstRoundSlotCount = (roundsMap.get(rounds[0]) ?? []).length;
 
   return (
     <div className="flex flex-col gap-6">
@@ -166,31 +166,11 @@ export default function PlayoffsManager({ seasons, conferences, teams, slots }: 
             ))}
           </select>
         </div>
-        {bracketSlots.length > 0 && (
-          <ClearBracketButton seasonId={seasonId} conferenceId={conferenceId} />
-        )}
+        {bracketSlots.length > 0 && <ClearBracketButton seasonId={seasonId} />}
       </div>
 
-      {conferences.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {conferences.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => setConferenceId(c.id)}
-              className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                conferenceId === c.id
-                  ? "bg-indigo-600 text-white"
-                  : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
-              }`}
-            >
-              {c.name}
-            </button>
-          ))}
-        </div>
-      )}
-
       {bracketSlots.length === 0 ? (
-        <CreateBracketForm seasonId={seasonId} conferenceId={conferenceId} />
+        <CreateBracketForm seasonId={seasonId} />
       ) : (
         <div className="flex gap-8 overflow-x-auto pb-4">
           {rounds.map((round, idx) => {
@@ -198,7 +178,7 @@ export default function PlayoffsManager({ seasons, conferences, teams, slots }: 
             return (
               <div key={round} className="flex flex-col gap-4 shrink-0 w-56">
                 <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-                  {roundLabel(totalRounds - 1 - idx)}
+                  {roundLabel(firstRoundSlotCount, totalRounds, idx)}
                 </h3>
                 {roundSlots.map((slot) => (
                   <div key={slot.id} className="border border-white/10 rounded-lg p-2">

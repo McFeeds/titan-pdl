@@ -54,7 +54,7 @@ export default async function SchedulesPage() {
         conferences={conferences ?? []}
         userConferenceId={null}
         matchups={[]}
-        bracketsByConference={{}}
+        bracketSlots={[]}
       />
     );
   }
@@ -94,7 +94,7 @@ export default async function SchedulesPage() {
 
     supabase
       .from("playoff_bracket_slots")
-      .select("conference_id, round, position, team_id")
+      .select("round, position, team_id")
       .eq("season_id", activeSeason.id)
       .order("round")
       .order("position"),
@@ -218,19 +218,17 @@ export default async function SchedulesPage() {
     };
   });
 
-  // Bracket slots grouped by conference, only present when an admin has
-  // actually set one up — the schedules view renders nothing otherwise.
-  const bracketsByConference: Record<number, BracketSlot[]> = {};
-  for (const s of (bracketSlots ?? []) as any[]) {
+  // League-wide bracket (one per season, not per conference), only present
+  // when an admin has actually set one up — the schedules view renders
+  // nothing otherwise.
+  const bracketSlotEntries: BracketSlot[] = ((bracketSlots ?? []) as any[]).map((s) => {
     const team = s.team_id ? teamMap.get(s.team_id) ?? null : null;
-    const slot: BracketSlot = {
+    return {
       round: s.round as number,
       position: s.position as number,
       team: team ? { id: team.id, team_name: team.team_name, logo_url: team.logo_url } : null,
     };
-    if (!bracketsByConference[s.conference_id]) bracketsByConference[s.conference_id] = [];
-    bracketsByConference[s.conference_id].push(slot);
-  }
+  });
 
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -239,7 +237,7 @@ export default async function SchedulesPage() {
       conferences={conferences ?? []}
       userConferenceId={userConferenceId}
       matchups={matchups}
-      bracketsByConference={bracketsByConference}
+      bracketSlots={bracketSlotEntries}
     />
   );
 }

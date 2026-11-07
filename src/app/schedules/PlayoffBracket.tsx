@@ -1,12 +1,21 @@
 import type { BracketSlot } from "./types";
 
-// Human label for a round, counting back from the final (0 = final) —
-// mirrors the same labeling used in the admin bracket editor.
-function roundLabel(roundsFromEnd: number): string {
-  if (roundsFromEnd === 0) return "Final";
-  if (roundsFromEnd === 1) return "Semifinals";
-  if (roundsFromEnd === 2) return "Quarterfinals";
-  return `Round ${roundsFromEnd + 1} of 16`;
+// Labels per bracket shape, keyed by "<round-1 slot count>-<total rounds>" —
+// the only two numbers needed to disambiguate every size the admin editor
+// supports, including the 12-team bracket sharing round 1's slot count (8)
+// with the 8-team bracket but needing one more round for its bye structure.
+// Mirrors the same table in the admin bracket editor.
+const ROUND_LABELS: Record<string, string[]> = {
+  "2-1": ["Final"],
+  "4-2": ["Semifinals", "Final"],
+  "8-3": ["Quarterfinals", "Semifinals", "Final"],
+  "8-4": ["First Round", "Quarterfinals", "Semifinals", "Final"],
+  "16-4": ["Round of 16", "Quarterfinals", "Semifinals", "Final"],
+};
+
+function roundLabel(firstRoundSlotCount: number, totalRounds: number, roundIdx: number): string {
+  const key = `${firstRoundSlotCount}-${totalRounds}`;
+  return ROUND_LABELS[key]?.[roundIdx] ?? `Round ${roundIdx + 1}`;
 }
 
 function SlotLogo({ team }: { team: BracketSlot["team"] }) {
@@ -90,7 +99,7 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
           return (
             <div key={round} className="flex flex-col shrink-0">
               <h3 className="text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-3">
-                {roundLabel(totalRounds - 1 - idx)}
+                {roundLabel(firstRoundSlotCount, totalRounds, idx)}
               </h3>
               <div className="flex flex-col justify-around" style={{ height: columnHeight }}>
                 {matchups.map((pair, i) => (

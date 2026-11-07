@@ -802,24 +802,26 @@ CREATE INDEX idx_match_games_match ON match_games (match_id);
 
 -- ------------------------------------------------------------
 -- PLAYOFF BRACKET SLOTS
--- A single-elimination bracket of team slots per (season, conference).
--- Admin picks a bracket size, which creates an empty slot skeleton for
--- every round (round 1 = size slots, round 2 = size/2, ... final = 2);
--- admins then assign a team to any slot, both for round-1 seeding and
--- to manually advance winners into later rounds.
+-- A single-elimination bracket of team slots for the whole league (one
+-- bracket per season, not per conference). Admin picks a bracket size,
+-- which creates an empty slot skeleton for every round -- most sizes
+-- halve each round (round 1 = size slots, round 2 = size/2, ... final
+-- = 2), except the 12-team size, where the top 4 seeds bye straight
+-- into round 2 so round 1 and round 2 both have 8 slots. Admins then
+-- assign a team to any slot, both for round-1 seeding and to manually
+-- advance winners (or byes) into later rounds.
 -- ------------------------------------------------------------
 CREATE TABLE playoff_bracket_slots (
-  id            SERIAL  PRIMARY KEY,
-  season_id     INTEGER NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
-  conference_id INTEGER NOT NULL REFERENCES conferences(id) ON DELETE CASCADE,
-  round         INTEGER NOT NULL CHECK (round >= 1),
-  position      INTEGER NOT NULL CHECK (position >= 0),
-  team_id       INTEGER REFERENCES teams(id) ON DELETE SET NULL,
-  UNIQUE (season_id, conference_id, round, position)
+  id         SERIAL  PRIMARY KEY,
+  season_id  INTEGER NOT NULL REFERENCES seasons(id) ON DELETE CASCADE,
+  round      INTEGER NOT NULL CHECK (round >= 1),
+  position   INTEGER NOT NULL CHECK (position >= 0),
+  team_id    INTEGER REFERENCES teams(id) ON DELETE SET NULL,
+  UNIQUE (season_id, round, position)
 );
 
-CREATE INDEX idx_playoff_bracket_slots_season_conf
-  ON playoff_bracket_slots (season_id, conference_id);
+CREATE INDEX idx_playoff_bracket_slots_season
+  ON playoff_bracket_slots (season_id);
 
 
 -- ------------------------------------------------------------

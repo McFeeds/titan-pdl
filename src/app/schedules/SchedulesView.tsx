@@ -236,12 +236,12 @@ export default function SchedulesView({
   conferences,
   userConferenceId,
   matchups,
-  bracketsByConference,
+  bracketSlots,
 }: {
   conferences: { id: number; name: string }[];
   userConferenceId: number | null;
   matchups: MatchupEntry[];
-  bracketsByConference: Record<number, BracketSlot[]>;
+  bracketSlots: BracketSlot[];
 }) {
   const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(
     userConferenceId ?? conferences[0]?.id ?? null
@@ -249,7 +249,6 @@ export default function SchedulesView({
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
   const conferenceMatchups = matchups.filter((m) => m.conference_id === selectedConferenceId);
-  const bracketSlots = selectedConferenceId != null ? bracketsByConference[selectedConferenceId] ?? [] : [];
 
   const weeks = [...new Set(conferenceMatchups.map((m) => m.week_number))].sort(
     (a, b) => a - b
@@ -279,6 +278,8 @@ export default function SchedulesView({
           <p className="text-sm text-gray-500 mt-1">Season matchups by week</p>
         </div>
 
+        <PlayoffBracket slots={bracketSlots} />
+
         {/* Conference tabs */}
         {conferences.length > 0 && (
           <div className="flex gap-2 mb-5 flex-wrap">
@@ -297,8 +298,6 @@ export default function SchedulesView({
             ))}
           </div>
         )}
-
-        <PlayoffBracket slots={bracketSlots} />
 
         {weeks.length === 0 ? (
           <p className="text-gray-600 text-sm italic mt-4">No matches scheduled yet.</p>

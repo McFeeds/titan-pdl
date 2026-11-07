@@ -4,13 +4,12 @@ import PlayoffsManager from "./PlayoffsManager";
 export default async function AdminPlayoffsPage() {
   const supabase = await createClient();
 
-  const [{ data: seasons }, { data: conferences }, { data: teams }, { data: slots }] = await Promise.all([
+  const [{ data: seasons }, { data: teams }, { data: slots }] = await Promise.all([
     supabase.from("seasons").select("id, name, is_active").order("created_at", { ascending: false }),
-    supabase.from("conferences").select("id, name").order("name"),
     supabase.from("teams").select("id, team_name").order("team_name"),
     supabase
       .from("playoff_bracket_slots")
-      .select("id, season_id, conference_id, round, position, team_id")
+      .select("id, season_id, round, position, team_id")
       .order("round")
       .order("position"),
   ]);
@@ -20,7 +19,6 @@ export default async function AdminPlayoffsPage() {
       <h1 className="text-2xl font-bold text-white mb-6">Playoff Bracket</h1>
       <PlayoffsManager
         seasons={seasons ?? []}
-        conferences={conferences ?? []}
         teams={teams ?? []}
         slots={slots ?? []}
       />

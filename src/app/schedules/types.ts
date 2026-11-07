@@ -25,6 +25,18 @@ export interface ComponentResult {
   winnerTeamName: string | null;
 }
 
+export interface BracketTeam {
+  id: number;
+  team_name: string;
+  logo_url: string | null;
+}
+
+export interface BracketSlot {
+  round: number;
+  position: number;
+  team: BracketTeam | null;
+}
+
 export interface MatchupEntry {
   id: number;
   week_number: number;

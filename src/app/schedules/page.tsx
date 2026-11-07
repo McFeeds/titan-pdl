@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getMatchComponents, recordFromComponents } from "@/lib/matchRecord";
 import SchedulesView from "./SchedulesView";
-import type { MatchupEntry, PokemonBasic, ReplayLink } from "./types";
+import type { MatchupEntry, PokemonBasic, ReplayLink, BracketSlot } from "./types";
 
 export const metadata = { title: "Schedules | Titan PDL" };
 
@@ -50,7 +50,12 @@ export default async function SchedulesPage() {
 
   if (!activeSeason) {
     return (
-      <SchedulesView conferences={conferences ?? []} userConferenceId={null} matchups={[]} />
+      <SchedulesView
+        conferences={conferences ?? []}
+        userConferenceId={null}
+        matchups={[]}
+        bracketsByConference={{}}
+      />
     );
   }
 
@@ -59,6 +64,7 @@ export default async function SchedulesPage() {
     { data: rawRosters },
     { data: teamSeasons },
     { data: teams },
+    { data: bracketSlots },
   ] = await Promise.all([
     // Deep fetch: matches → match_games → match_game_pokemon → pokemon
     supabase
@@ -85,6 +91,13 @@ export default async function SchedulesPage() {
       .eq("season_id", activeSeason.id),
 
     supabase.from("teams").select("id, team_name, logo_url"),
+
+    supabase
+      .from("playoff_bracket_slots")
+      .select("conference_id, round, position, team_id")
+      .eq("season_id", activeSeason.id)
+      .order("round")
+      .order("position"),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -205,6 +218,20 @@ export default async function SchedulesPage() {
     };
   });
 
+  // Bracket slots grouped by conference, only present when an admin has
+  // actually set one up — the schedules view renders nothing otherwise.
+  const bracketsByConference: Record<number, BracketSlot[]> = {};
+  for (const s of (bracketSlots ?? []) as any[]) {
+    const team = s.team_id ? teamMap.get(s.team_id) ?? null : null;
+    const slot: BracketSlot = {
+      round: s.round as number,
+      position: s.position as number,
+      team: team ? { id: team.id, team_name: team.team_name, logo_url: team.logo_url } : null,
+    };
+    if (!bracketsByConference[s.conference_id]) bracketsByConference[s.conference_id] = [];
+    bracketsByConference[s.conference_id].push(slot);
+  }
+
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
@@ -212,6 +239,7 @@ export default async function SchedulesPage() {
       conferences={conferences ?? []}
       userConferenceId={userConferenceId}
       matchups={matchups}
+      bracketsByConference={bracketsByConference}
     />
   );
 }

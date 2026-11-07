@@ -10,6 +10,7 @@ const links = [
   { href: "/admin/rosters", label: "Rosters" },
   { href: "/admin/draft-pools", label: "Draft Pools" },
   { href: "/admin/matches", label: "Matches" },
+  { href: "/admin/playoffs", label: "Playoffs" },
 ];
 
 export default function AdminSidebar() {

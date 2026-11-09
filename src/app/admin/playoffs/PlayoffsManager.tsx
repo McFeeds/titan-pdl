@@ -22,6 +22,7 @@ const SIZES = [2, 4, 8, 12, 16] as const;
 // the only two numbers needed to disambiguate every size we support,
 // including the 12-team bracket sharing round 1's slot count (8) with the
 // 8-team bracket but needing one more round for its bye structure.
+// Mirrors the same table on the public Schedules page.
 const ROUND_LABELS: Record<string, string[]> = {
   "2-1": ["Final"],
   "4-2": ["Semifinals", "Final"],
@@ -66,6 +67,46 @@ function BracketSlotSelect({ slot, teams }: { slot: Slot; teams: Team[] }) {
       </select>
       {state?.error && <p className="text-red-400 text-xs shrink-0">{state.error}</p>}
     </form>
+  );
+}
+
+// Groups a round's two slots into one visual matchup, numbered within its
+// round, with the same elbow + reach-line connector language as the public
+// bracket — so placing a winner into the next round is "follow this line"
+// rather than guessing. See PlayoffBracket.tsx (schedules) for the full
+// reasoning behind why the reach line's alignment doesn't need measuring:
+// every round shares one fixed column height and even justify-around
+// spacing, so a matchup's vertical center always lands exactly on its
+// destination matchup's center when the next round is exactly half this
+// round's slot count.
+function MatchupBox({
+  slots,
+  teams,
+  matchNumber,
+  hasNext,
+  connectsToNext,
+}: {
+  slots: Slot[];
+  teams: Team[];
+  matchNumber: number;
+  hasNext: boolean;
+  connectsToNext: boolean;
+}) {
+  return (
+    <div className={`relative ${hasNext ? "pr-16" : ""}`}>
+      <div className="border border-white/10 rounded-lg p-2 flex flex-col gap-2">
+        <p className="text-[10px] font-bold text-gray-600 uppercase tracking-wider">Match {matchNumber}</p>
+        {slots.map((slot) => (
+          <BracketSlotSelect key={`${slot.id}-${slot.team_id ?? "tbd"}`} slot={slot} teams={teams} />
+        ))}
+      </div>
+      {hasNext && (
+        <div className="absolute right-10 top-1/4 bottom-1/4 w-6 border-t border-r border-b border-white/25 rounded-r pointer-events-none" />
+      )}
+      {hasNext && connectsToNext && (
+        <div className="absolute right-0 top-1/2 w-10 border-t border-white/25 pointer-events-none -translate-y-px" />
+      )}
+    </div>
   );
 }
 
@@ -156,7 +197,13 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
   }
   const rounds = [...roundsMap.keys()].sort((a, b) => a - b);
   const totalRounds = rounds.length;
-  const firstRoundSlotCount = (roundsMap.get(rounds[0]) ?? []).length;
+  const roundSlotCounts = rounds.map((r) => (roundsMap.get(r) ?? []).length);
+  const firstRoundSlotCount = roundSlotCounts[0];
+  // Fixed height every round column shares, so justify-around naturally
+  // centers sparser later rounds between their source matchups, and the
+  // reach-line connectors land on the right destination without needing to
+  // measure anything.
+  const columnHeight = (firstRoundSlotCount / 2) * 220;
 
   return (
     <div className="flex flex-col gap-6">
@@ -181,22 +228,43 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
       {bracketSlots.length === 0 ? (
         <CreateBracketForm seasonId={seasonId} />
       ) : (
-        <div className="flex gap-8 overflow-x-auto pb-4">
+        <div className="flex justify-start overflow-x-auto pb-4">
           {rounds.map((round, idx) => {
             const roundSlots = (roundsMap.get(round) ?? []).sort((a, b) => a.position - b.position);
+            const matchups: Slot[][] = [];
+            for (let i = 0; i < roundSlots.length; i += 2) {
+              matchups.push(roundSlots.slice(i, i + 2));
+            }
+            const hasNext = idx < totalRounds - 1;
+            const connectsToNext = hasNext && roundSlotCounts[idx + 1] === roundSlotCounts[idx] / 2;
+
             return (
-              <div key={round} className="flex flex-col gap-4 shrink-0 w-56">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+              <div key={round} className="flex flex-col shrink-0 w-64">
+                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
                   {roundLabel(firstRoundSlotCount, totalRounds, idx)}
                 </h3>
-                {roundSlots.map((slot) => (
-                  <div
-                    key={`${slot.id}-${slot.team_id ?? "tbd"}`}
-                    className="border border-white/10 rounded-lg p-2"
-                  >
-                    <BracketSlotSelect slot={slot} teams={teams} />
-                  </div>
-                ))}
+                {/* Fixed-height note area on every column (empty when unused)
+                    so every round's matchup box starts at the same Y — needed
+                    for the reach-line connectors below to line up. */}
+                <div className="h-8 mb-3 max-w-[200px]">
+                  {hasNext && !connectsToNext && (
+                    <p className="text-[10px] text-gray-600 italic leading-tight">
+                      Winners advance into the next round.
+                    </p>
+                  )}
+                </div>
+                <div className="flex flex-col justify-around" style={{ height: columnHeight }}>
+                  {matchups.map((pair, i) => (
+                    <MatchupBox
+                      key={i}
+                      slots={pair}
+                      teams={teams}
+                      matchNumber={i + 1}
+                      hasNext={hasNext}
+                      connectsToNext={connectsToNext}
+                    />
+                  ))}
+                </div>
               </div>
             );
           })}

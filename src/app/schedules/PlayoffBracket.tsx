@@ -27,6 +27,7 @@ function SlotLogo({ team }: { team: BracketSlot["team"] }) {
     );
   }
   return team.logo_url ? (
+    // The team's own submitted logo — never a placeholder/sprite.
     // eslint-disable-next-line @next/next/no-img-element
     <img src={team.logo_url} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
   ) : (
@@ -51,18 +52,40 @@ function SlotCard({ team }: { team: BracketSlot["team"] }) {
   );
 }
 
-// Each matchup pair gets a right-side bracket connector (⊐ shape) linking
-// its two slots toward the next round, using justify-around spacing per
-// round column (see PlayoffBracket below) to keep later rounds roughly
-// centered between their source matchups without needing exact pixel math.
-function MatchupPair({ slots, isFinal }: { slots: BracketSlot[]; isFinal: boolean }) {
+// Every matchup pair reserves pr-16 (64px) of space for its connector,
+// matching the gap a reach-connected matchup's line has to cross — so every
+// column lines up the same whether or not a given matchup draws a reach
+// line. Within that space: a short vertical elbow (right-10 w-6, the last
+// 24px) always joins this pair's two slots into one point at their shared
+// vertical center; when the next round's slot count is exactly half of this
+// one (true for every round transition except the 12-team bracket's unique
+// bye round, where it isn't *un*determined but genuinely isn't 1:1 — admin
+// freely places both byes and advancing winners across all 8 Quarterfinal
+// slots), a horizontal reach line (right-0 w-10, the first 40px) continues
+// from the elbow all the way to the next round's column edge. Because every
+// round shares the same fixed column height (see PlayoffBracket below) and
+// uses even justify-around spacing, that reach line's vertical center lands
+// exactly on the destination matchup's own center — no DOM measurement
+// needed, just matching flexbox math on both sides of the gap.
+function MatchupPair({
+  slots,
+  hasNext,
+  connectsToNext,
+}: {
+  slots: BracketSlot[];
+  hasNext: boolean;
+  connectsToNext: boolean;
+}) {
   return (
-    <div className={`relative flex flex-col gap-5 ${isFinal ? "" : "pr-6"}`}>
+    <div className={`relative flex flex-col gap-5 ${hasNext ? "pr-16" : ""}`}>
       {slots.map((slot) => (
         <SlotCard key={slot.position} team={slot.team} />
       ))}
-      {!isFinal && (
-        <div className="absolute right-0 top-1/4 bottom-1/4 w-6 border-t border-r border-b border-white/20 rounded-r pointer-events-none" />
+      {hasNext && (
+        <div className="absolute right-10 top-1/4 bottom-1/4 w-6 border-t border-r border-b border-white/25 rounded-r pointer-events-none" />
+      )}
+      {hasNext && connectsToNext && (
+        <div className="absolute right-0 top-1/2 w-10 border-t border-white/25 pointer-events-none -translate-y-px" />
       )}
     </div>
   );
@@ -79,7 +102,8 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
   }
   const rounds = [...roundsMap.keys()].sort((a, b) => a - b);
   const totalRounds = rounds.length;
-  const firstRoundSlotCount = (roundsMap.get(rounds[0]) ?? []).length;
+  const roundSlotCounts = rounds.map((r) => (roundsMap.get(r) ?? []).length);
+  const firstRoundSlotCount = roundSlotCounts[0];
   // Fixed height every round column shares, so justify-around naturally
   // centers sparser later rounds between their source matchups. Each
   // matchup pair's own content is ~164px tall (two 72px cards + gap-5), so
@@ -90,23 +114,35 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
   return (
     <div className="bg-[#0d0d20] border border-white/10 rounded-2xl p-8 md:p-10">
       <h2 className="text-base font-bold text-white mb-8">Playoff Bracket</h2>
-      <div className="flex justify-center gap-16 overflow-x-auto pb-2">
+      <div className="flex justify-center overflow-x-auto pb-2">
         {rounds.map((round, idx) => {
           const roundSlots = (roundsMap.get(round) ?? []).sort((a, b) => a.position - b.position);
           const matchups: BracketSlot[][] = [];
           for (let i = 0; i < roundSlots.length; i += 2) {
             matchups.push(roundSlots.slice(i, i + 2));
           }
-          const isFinal = idx === totalRounds - 1;
+          const hasNext = idx < totalRounds - 1;
+          const connectsToNext = hasNext && roundSlotCounts[idx + 1] === roundSlotCounts[idx] / 2;
 
           return (
             <div key={round} className="flex flex-col shrink-0">
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">
                 {roundLabel(firstRoundSlotCount, totalRounds, idx)}
               </h3>
+              {/* Fixed-height note area on every column (empty when unused) so
+                  every round's matchup box starts at the same Y regardless of
+                  whether this particular column has a caption — needed for
+                  the reach-line math below to line up correctly. */}
+              <div className="h-8 mb-4 max-w-[200px]">
+                {hasNext && !connectsToNext && (
+                  <p className="text-[10px] text-gray-600 italic leading-tight">
+                    Winners advance into the next round.
+                  </p>
+                )}
+              </div>
               <div className="flex flex-col justify-around" style={{ height: columnHeight }}>
                 {matchups.map((pair, i) => (
-                  <MatchupPair key={i} slots={pair} isFinal={isFinal} />
+                  <MatchupPair key={i} slots={pair} hasNext={hasNext} connectsToNext={connectsToNext} />
                 ))}
               </div>
             </div>

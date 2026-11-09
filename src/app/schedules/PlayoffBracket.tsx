@@ -52,30 +52,12 @@ function SlotCard({ team }: { team: BracketSlot["team"] }) {
   );
 }
 
-// Every matchup pair reserves pr-16 (64px) of space for its connector,
-// matching the gap a reach-connected matchup's line has to cross — so every
-// column lines up the same whether or not a given matchup draws a reach
-// line. Within that space: a short vertical elbow (right-10 w-6, the last
-// 24px) always joins this pair's two slots into one point at their shared
-// vertical center; when the next round's slot count is exactly half of this
-// one (true for every round transition except the 12-team bracket's unique
-// bye round, where it isn't *un*determined but genuinely isn't 1:1 — admin
-// freely places both byes and advancing winners across all 8 Quarterfinal
-// slots), a horizontal reach line (right-0 w-10, the first 40px) continues
-// from the elbow all the way to the next round's column edge. Because every
-// round shares the same fixed column height (see PlayoffBracket below) and
-// uses even justify-around spacing, that reach line's vertical center lands
-// exactly on the destination matchup's own center — no DOM measurement
-// needed, just matching flexbox math on both sides of the gap.
-function MatchupPair({
-  slots,
-  hasNext,
-  connectsToNext,
-}: {
-  slots: BracketSlot[];
-  hasNext: boolean;
-  connectsToNext: boolean;
-}) {
+// Every matchup pair reserves pr-16 (64px) of space for its connector, so
+// every column lines up the same whether or not this round reaches the
+// next one. Within that space, a short local elbow (right-10 w-6, the last
+// 24px) always joins THIS pair's own two slots into one point at their
+// shared vertical center — that part needs no cross-matchup math.
+function MatchupPair({ slots, hasNext }: { slots: BracketSlot[]; hasNext: boolean }) {
   return (
     <div className={`relative flex flex-col gap-5 ${hasNext ? "pr-16" : ""}`}>
       {slots.map((slot) => (
@@ -84,10 +66,34 @@ function MatchupPair({
       {hasNext && (
         <div className="absolute right-10 top-1/4 bottom-1/4 w-6 border-t border-r border-b border-white/25 rounded-r pointer-events-none" />
       )}
-      {hasNext && connectsToNext && (
-        <div className="absolute right-0 top-1/2 w-10 border-t border-white/25 pointer-events-none -translate-y-px" />
-      )}
     </div>
+  );
+}
+
+// Reaching the next round is NOT one-to-one: two source matchups' winners
+// fill the next round's one destination matchup (one winner per slot), so
+// a line from a single matchup's own center never lands on anything — only
+// the MIDPOINT between a pair of matchups aligns with their shared
+// destination. This draws that correctly: a vertical bar spanning from one
+// paired matchup's center to the other's (picking up exactly where each
+// one's own local elbow — above — already converges, since both sit at the
+// same x), then one horizontal line continuing from the bar's midpoint to
+// the next round. Every round shares one fixed column height and even
+// justify-around spacing, so these pixel offsets are computed directly from
+// that shared math — no DOM measurement needed.
+function AdvancementConnector({ yTop, yBottom }: { yTop: number; yBottom: number }) {
+  const yMid = (yTop + yBottom) / 2;
+  return (
+    <>
+      <div
+        className="absolute right-10 w-6 border-r border-white/25 pointer-events-none"
+        style={{ top: yTop, height: yBottom - yTop }}
+      />
+      <div
+        className="absolute right-0 w-10 border-t border-white/25 pointer-events-none"
+        style={{ top: yMid }}
+      />
+    </>
   );
 }
 
@@ -145,10 +151,18 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
                   </p>
                 )}
               </div>
-              <div className="flex flex-col justify-around" style={{ height: columnHeight }}>
+              <div className="relative flex flex-col justify-around" style={{ height: columnHeight }}>
                 {matchups.map((pair, i) => (
-                  <MatchupPair key={i} slots={pair} hasNext={hasNext} connectsToNext={connectsToNext} />
+                  <MatchupPair key={i} slots={pair} hasNext={hasNext} />
                 ))}
+                {connectsToNext &&
+                  Array.from({ length: matchups.length / 2 }, (_, j) => (
+                    <AdvancementConnector
+                      key={j}
+                      yTop={(columnHeight * (2 * j + 0.5)) / matchups.length}
+                      yBottom={(columnHeight * (2 * j + 1.5)) / matchups.length}
+                    />
+                  ))}
               </div>
             </div>
           );

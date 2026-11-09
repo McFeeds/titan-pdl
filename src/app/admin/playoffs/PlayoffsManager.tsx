@@ -74,23 +74,21 @@ function BracketSlotSelect({ slot, teams }: { slot: Slot; teams: Team[] }) {
 // round, with the same elbow + reach-line connector language as the public
 // bracket — so placing a winner into the next round is "follow this line"
 // rather than guessing. See PlayoffBracket.tsx (schedules) for the full
-// reasoning behind why the reach line's alignment doesn't need measuring:
-// every round shares one fixed column height and even justify-around
-// spacing, so a matchup's vertical center always lands exactly on its
-// destination matchup's center when the next round is exactly half this
-// round's slot count.
+// reasoning: reaching the next round is NOT one-to-one (two source
+// matchups' winners fill one destination matchup's two slots), so the
+// reach line is drawn once per PAIR of matchups (AdvancementConnector,
+// below) rather than independently per matchup — a line from a single
+// matchup's own center never lands on anything.
 function MatchupBox({
   slots,
   teams,
   matchNumber,
   hasNext,
-  connectsToNext,
 }: {
   slots: Slot[];
   teams: Team[];
   matchNumber: number;
   hasNext: boolean;
-  connectsToNext: boolean;
 }) {
   return (
     <div className={`relative ${hasNext ? "pr-16" : ""}`}>
@@ -103,10 +101,23 @@ function MatchupBox({
       {hasNext && (
         <div className="absolute right-10 top-1/4 bottom-1/4 w-6 border-t border-r border-b border-white/25 rounded-r pointer-events-none" />
       )}
-      {hasNext && connectsToNext && (
-        <div className="absolute right-0 top-1/2 w-10 border-t border-white/25 pointer-events-none -translate-y-px" />
-      )}
     </div>
+  );
+}
+
+function AdvancementConnector({ yTop, yBottom }: { yTop: number; yBottom: number }) {
+  const yMid = (yTop + yBottom) / 2;
+  return (
+    <>
+      <div
+        className="absolute right-10 w-6 border-r border-white/25 pointer-events-none"
+        style={{ top: yTop, height: yBottom - yTop }}
+      />
+      <div
+        className="absolute right-0 w-10 border-t border-white/25 pointer-events-none"
+        style={{ top: yMid }}
+      />
+    </>
   );
 }
 
@@ -253,7 +264,7 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
                     </p>
                   )}
                 </div>
-                <div className="flex flex-col justify-around" style={{ height: columnHeight }}>
+                <div className="relative flex flex-col justify-around" style={{ height: columnHeight }}>
                   {matchups.map((pair, i) => (
                     <MatchupBox
                       key={i}
@@ -261,9 +272,16 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
                       teams={teams}
                       matchNumber={i + 1}
                       hasNext={hasNext}
-                      connectsToNext={connectsToNext}
                     />
                   ))}
+                  {connectsToNext &&
+                    Array.from({ length: matchups.length / 2 }, (_, j) => (
+                      <AdvancementConnector
+                        key={j}
+                        yTop={(columnHeight * (2 * j + 0.5)) / matchups.length}
+                        yBottom={(columnHeight * (2 * j + 1.5)) / matchups.length}
+                      />
+                    ))}
                 </div>
               </div>
             );

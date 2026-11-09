@@ -114,7 +114,12 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
   return (
     <div className="bg-[#0d0d20] border border-white/10 rounded-2xl p-8 md:p-10">
       <h2 className="text-base font-bold text-white mb-8">Playoff Bracket</h2>
-      <div className="flex justify-center overflow-x-auto pb-2">
+      {/* justify-start, not center: a centered flex container that overflows
+          scrolls to show its middle by default, making the start of the
+          content (First Round) partly inaccessible on any screen narrower
+          than the full bracket — which a 4-round bracket like the 12-team
+          size reliably is. */}
+      <div className="flex justify-start overflow-x-auto pb-2">
         {rounds.map((round, idx) => {
           const roundSlots = (roundsMap.get(round) ?? []).sort((a, b) => a.position - b.position);
           const matchups: BracketSlot[][] = [];

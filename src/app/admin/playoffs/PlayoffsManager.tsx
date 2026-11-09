@@ -37,6 +37,12 @@ function roundLabel(firstRoundSlotCount: number, totalRounds: number, roundIdx: 
 
 function BracketSlotSelect({ slot, teams }: { slot: Slot; teams: Team[] }) {
   const [state, action, pending] = useActionState(setBracketSlotTeam, null);
+  // Controlled, not defaultValue: a <form action={...}> auto-resets any
+  // uncontrolled field to its original mount-time value once the action
+  // succeeds, which was snapping this select back to "TBD" right after a
+  // real pick landed. Keyed on slot.team_id in the parent list so this
+  // still resyncs to the authoritative server value after each save.
+  const [value, setValue] = useState(slot.team_id?.toString() ?? "");
 
   return (
     <form action={action} className="flex items-center gap-2">
@@ -45,8 +51,11 @@ function BracketSlotSelect({ slot, teams }: { slot: Slot; teams: Team[] }) {
       <input type="hidden" name="position" value={slot.position} />
       <select
         name="team_id"
-        defaultValue={slot.team_id?.toString() ?? ""}
-        onChange={(e) => e.currentTarget.form?.requestSubmit()}
+        value={value}
+        onChange={(e) => {
+          setValue(e.target.value);
+          e.currentTarget.form?.requestSubmit();
+        }}
         disabled={pending}
         className={`${selectCls} w-full`}
       >
@@ -181,7 +190,10 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
                   {roundLabel(firstRoundSlotCount, totalRounds, idx)}
                 </h3>
                 {roundSlots.map((slot) => (
-                  <div key={slot.id} className="border border-white/10 rounded-lg p-2">
+                  <div
+                    key={`${slot.id}-${slot.team_id ?? "tbd"}`}
+                    className="border border-white/10 rounded-lg p-2"
+                  >
                     <BracketSlotSelect slot={slot} teams={teams} />
                   </div>
                 ))}

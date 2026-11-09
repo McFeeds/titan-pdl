@@ -121,6 +121,18 @@ function AdvancementConnector({ yTop, yBottom }: { yTop: number; yBottom: number
   );
 }
 
+// "same"-count transition (12-team bracket's First Round -> Quarterfinals
+// only): matchup i maps straight across to matchup i, at the same height —
+// see the matching comment in PlayoffBracket.tsx (schedules) for why.
+function StraightConnector({ y }: { y: number }) {
+  return (
+    <div
+      className="absolute right-0 w-10 border-t border-white/25 pointer-events-none"
+      style={{ top: y }}
+    />
+  );
+}
+
 function CreateBracketForm({ seasonId }: { seasonId: number }) {
   const [state, action, pending] = useActionState(createBracket, null);
 
@@ -247,7 +259,14 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
               matchups.push(roundSlots.slice(i, i + 2));
             }
             const hasNext = idx < totalRounds - 1;
-            const connectsToNext = hasNext && roundSlotCounts[idx + 1] === roundSlotCounts[idx] / 2;
+            const nextCount = hasNext ? roundSlotCounts[idx + 1] : 0;
+            const transition: "halve" | "same" | "none" = !hasNext
+              ? "none"
+              : nextCount === roundSlotCounts[idx] / 2
+              ? "halve"
+              : nextCount === roundSlotCounts[idx]
+              ? "same"
+              : "none";
 
             return (
               <div key={round} className="flex flex-col shrink-0 w-64">
@@ -258,7 +277,7 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
                     so every round's matchup box starts at the same Y — needed
                     for the reach-line connectors below to line up. */}
                 <div className="h-8 mb-3 max-w-[200px]">
-                  {hasNext && !connectsToNext && (
+                  {transition === "none" && hasNext && (
                     <p className="text-[10px] text-gray-600 italic leading-tight">
                       Winners advance into the next round.
                     </p>
@@ -274,13 +293,17 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
                       hasNext={hasNext}
                     />
                   ))}
-                  {connectsToNext &&
+                  {transition === "halve" &&
                     Array.from({ length: matchups.length / 2 }, (_, j) => (
                       <AdvancementConnector
                         key={j}
                         yTop={(columnHeight * (2 * j + 0.5)) / matchups.length}
                         yBottom={(columnHeight * (2 * j + 1.5)) / matchups.length}
                       />
+                    ))}
+                  {transition === "same" &&
+                    matchups.map((_, i) => (
+                      <StraightConnector key={i} y={(columnHeight * (i + 0.5)) / matchups.length} />
                     ))}
                 </div>
               </div>

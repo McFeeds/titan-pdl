@@ -70,17 +70,31 @@ function MatchupPair({ slots, hasNext }: { slots: BracketSlot[]; hasNext: boolea
   );
 }
 
-// Reaching the next round is NOT one-to-one: two source matchups' winners
-// fill the next round's one destination matchup (one winner per slot), so
-// a line from a single matchup's own center never lands on anything — only
-// the MIDPOINT between a pair of matchups aligns with their shared
-// destination. This draws that correctly: a vertical bar spanning from one
+// Reaching the next round is NOT always one-to-one. Two cases:
+//
+// "halve" — the next round has exactly half this round's matchup count
+// (true for every ordinary round, e.g. Quarterfinals -> Semifinals): two
+// source matchups' winners fill the next round's ONE destination matchup,
+// one each. A line from a single matchup's own center never lands on
+// anything here — only the MIDPOINT between a pair of matchups aligns with
+// their shared destination. Drawn as a vertical bar spanning from one
 // paired matchup's center to the other's (picking up exactly where each
-// one's own local elbow — above — already converges, since both sit at the
-// same x), then one horizontal line continuing from the bar's midpoint to
-// the next round. Every round shares one fixed column height and even
-// justify-around spacing, so these pixel offsets are computed directly from
-// that shared math — no DOM measurement needed.
+// one's own local elbow, in MatchupPair above, already converges, since
+// both sit at the same x), then one line from the bar's midpoint to the
+// next round.
+//
+// "same" — the next round has the SAME matchup count as this one (true
+// only for a 12-team bracket's First Round -> Quarterfinals: 4 play-in
+// matchups, each feeding a *specific* Quarterfinal matchup alongside one of
+// the 4 byes — standard seeded-bye convention, e.g. 5v12's winner meets the
+// 1-seed, 6v11's meets the 2-seed, etc.). Here matchup i really does map
+// straight across to matchup i, at the same height, so one plain line
+// suffices with no convergence needed.
+//
+// Both only need the known column height and matchup counts — no DOM
+// measurement — because justify-around gives every item an equal H/N
+// slot and centers it there regardless of the item's own height, so a
+// matchup's true center is always exactly columnHeight*(i+0.5)/N.
 function AdvancementConnector({ yTop, yBottom }: { yTop: number; yBottom: number }) {
   const yMid = (yTop + yBottom) / 2;
   return (
@@ -94,6 +108,15 @@ function AdvancementConnector({ yTop, yBottom }: { yTop: number; yBottom: number
         style={{ top: yMid }}
       />
     </>
+  );
+}
+
+function StraightConnector({ y }: { y: number }) {
+  return (
+    <div
+      className="absolute right-0 w-10 border-t border-white/25 pointer-events-none"
+      style={{ top: y }}
+    />
   );
 }
 
@@ -133,7 +156,14 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
             matchups.push(roundSlots.slice(i, i + 2));
           }
           const hasNext = idx < totalRounds - 1;
-          const connectsToNext = hasNext && roundSlotCounts[idx + 1] === roundSlotCounts[idx] / 2;
+          const nextCount = hasNext ? roundSlotCounts[idx + 1] : 0;
+          const transition: "halve" | "same" | "none" = !hasNext
+            ? "none"
+            : nextCount === roundSlotCounts[idx] / 2
+            ? "halve"
+            : nextCount === roundSlotCounts[idx]
+            ? "same"
+            : "none";
 
           return (
             <div key={round} className="flex flex-col shrink-0">
@@ -145,7 +175,7 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
                   whether this particular column has a caption — needed for
                   the reach-line math below to line up correctly. */}
               <div className="h-8 mb-4 max-w-[200px]">
-                {hasNext && !connectsToNext && (
+                {transition === "none" && hasNext && (
                   <p className="text-[10px] text-gray-600 italic leading-tight">
                     Winners advance into the next round.
                   </p>
@@ -155,13 +185,17 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
                 {matchups.map((pair, i) => (
                   <MatchupPair key={i} slots={pair} hasNext={hasNext} />
                 ))}
-                {connectsToNext &&
+                {transition === "halve" &&
                   Array.from({ length: matchups.length / 2 }, (_, j) => (
                     <AdvancementConnector
                       key={j}
                       yTop={(columnHeight * (2 * j + 0.5)) / matchups.length}
                       yBottom={(columnHeight * (2 * j + 1.5)) / matchups.length}
                     />
+                  ))}
+                {transition === "same" &&
+                  matchups.map((_, i) => (
+                    <StraightConnector key={i} y={(columnHeight * (i + 0.5)) / matchups.length} />
                   ))}
               </div>
             </div>

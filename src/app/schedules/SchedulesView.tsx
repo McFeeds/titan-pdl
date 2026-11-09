@@ -243,11 +243,14 @@ export default function SchedulesView({
   matchups: MatchupEntry[];
   bracketSlots: BracketSlot[];
 }) {
-  const [selectedConferenceId, setSelectedConferenceId] = useState<number | null>(
-    userConferenceId ?? conferences[0]?.id ?? null
+  type Tab = number | "playoffs";
+  const hasBracket = bracketSlots.length > 0;
+  const [selectedTab, setSelectedTab] = useState<Tab | null>(
+    userConferenceId ?? conferences[0]?.id ?? (hasBracket ? "playoffs" : null)
   );
   const [selectedWeek, setSelectedWeek] = useState<number | null>(null);
 
+  const selectedConferenceId = typeof selectedTab === "number" ? selectedTab : null;
   const conferenceMatchups = matchups.filter((m) => m.conference_id === selectedConferenceId);
 
   const weeks = [...new Set(conferenceMatchups.map((m) => m.week_number))].sort(
@@ -265,30 +268,30 @@ export default function SchedulesView({
   const effectiveWeek = selectedWeek ?? latestPlayedWeek ?? weeks[0] ?? null;
   const weekMatchups = conferenceMatchups.filter((m) => m.week_number === effectiveWeek);
 
-  function handleConferenceChange(id: number) {
-    setSelectedConferenceId(id);
+  function handleTabChange(tab: Tab) {
+    setSelectedTab(tab);
     setSelectedWeek(null);
   }
 
+  const onPlayoffs = selectedTab === "playoffs";
+
   return (
     <main className="min-h-screen bg-[#0a0a1a] pt-20 px-6 pb-12">
-      <div className="max-w-5xl mx-auto">
+      <div className={`mx-auto ${onPlayoffs ? "max-w-[1800px]" : "max-w-5xl"}`}>
         <div className="pt-6 mb-6">
           <h1 className="text-2xl font-bold text-white">Schedule</h1>
           <p className="text-sm text-gray-500 mt-1">Season matchups by week</p>
         </div>
 
-        <PlayoffBracket slots={bracketSlots} />
-
-        {/* Conference tabs */}
-        {conferences.length > 0 && (
+        {/* Conference + Playoffs tabs */}
+        {(conferences.length > 0 || hasBracket) && (
           <div className="flex gap-2 mb-5 flex-wrap">
             {conferences.map((conf) => (
               <button
                 key={conf.id}
-                onClick={() => handleConferenceChange(conf.id)}
+                onClick={() => handleTabChange(conf.id)}
                 className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
-                  selectedConferenceId === conf.id
+                  selectedTab === conf.id
                     ? "bg-indigo-600 text-white"
                     : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
                 }`}
@@ -296,10 +299,24 @@ export default function SchedulesView({
                 {conf.name}
               </button>
             ))}
+            {hasBracket && (
+              <button
+                onClick={() => handleTabChange("playoffs")}
+                className={`px-4 py-1.5 rounded-full text-sm font-semibold transition-colors ${
+                  onPlayoffs
+                    ? "bg-indigo-600 text-white"
+                    : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                Playoffs
+              </button>
+            )}
           </div>
         )}
 
-        {weeks.length === 0 ? (
+        {onPlayoffs ? (
+          <PlayoffBracket slots={bracketSlots} />
+        ) : weeks.length === 0 ? (
           <p className="text-gray-600 text-sm italic mt-4">No matches scheduled yet.</p>
         ) : (
           <>

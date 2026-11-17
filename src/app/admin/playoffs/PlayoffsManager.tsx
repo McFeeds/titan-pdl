@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { createBracket, setBracketSlotTeam, clearBracket } from "./actions";
+import { classifyTransition, roundLabel } from "@/lib/playoffBracket";
 
 const selectCls =
   "px-3 py-2 bg-[#0d0d1f] border border-white/10 rounded-lg text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 text-sm [&>option]:bg-[#0d0d1f]";
@@ -17,24 +18,6 @@ type Props = {
 };
 
 const SIZES = [2, 4, 8, 12, 16] as const;
-
-// Labels per bracket shape, keyed by "<round-1 slot count>-<total rounds>" —
-// the only two numbers needed to disambiguate every size we support,
-// including the 12-team bracket sharing round 1's slot count (8) with the
-// 8-team bracket but needing one more round for its bye structure.
-// Mirrors the same table on the public Schedules page.
-const ROUND_LABELS: Record<string, string[]> = {
-  "2-1": ["Final"],
-  "4-2": ["Semifinals", "Final"],
-  "8-3": ["Quarterfinals", "Semifinals", "Final"],
-  "8-4": ["First Round", "Quarterfinals", "Semifinals", "Final"],
-  "16-4": ["Round of 16", "Quarterfinals", "Semifinals", "Final"],
-};
-
-function roundLabel(firstRoundSlotCount: number, totalRounds: number, roundIdx: number): string {
-  const key = `${firstRoundSlotCount}-${totalRounds}`;
-  return ROUND_LABELS[key]?.[roundIdx] ?? `Round ${roundIdx + 1}`;
-}
 
 function BracketSlotSelect({ slot, teams }: { slot: Slot; teams: Team[] }) {
   const [state, action, pending] = useActionState(setBracketSlotTeam, null);
@@ -259,13 +242,8 @@ export default function PlayoffsManager({ seasons, teams, slots }: Props) {
               matchups.push(roundSlots.slice(i, i + 2));
             }
             const hasNext = idx < totalRounds - 1;
-            const nextCount = hasNext ? roundSlotCounts[idx + 1] : 0;
-            const transition: "halve" | "same" | "none" = !hasNext
-              ? "none"
-              : nextCount === roundSlotCounts[idx] / 2
-              ? "halve"
-              : nextCount === roundSlotCounts[idx]
-              ? "same"
+            const transition = hasNext
+              ? classifyTransition(matchups.length, roundSlotCounts[idx + 1] / 2)
               : "none";
 
             return (

@@ -1,7 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getMatchComponents, recordFromComponents } from "@/lib/matchRecord";
 import SchedulesView from "./SchedulesView";
-import type { MatchupEntry, PokemonBasic, ReplayLink, BracketSlot } from "./types";
+import type { MatchupEntry, PokemonBasic, ReplayLink, BracketSlot, PlayoffMatchResult } from "./types";
 
 export const metadata = { title: "Schedules | Titan PDL" };
 
@@ -18,8 +18,9 @@ export default async function SchedulesPage() {
     supabase.auth.getUser(),
   ]);
 
-  // Determine logged-in user's conference (same pattern as draft-pools)
+  // Determine logged-in user's conference + team (same pattern as draft-pools)
   let userConferenceId: number | null = null;
+  let userTeamId: number | null = null;
   const user = authData?.user;
   if (user && activeSeason) {
     const discordUsername =
@@ -37,6 +38,7 @@ export default async function SchedulesPage() {
         .limit(1)
         .maybeSingle();
       if (membership?.team_id) {
+        userTeamId = membership.team_id;
         const { data: placement } = await supabase
           .from("team_seasons")
           .select("conference_id")
@@ -55,6 +57,9 @@ export default async function SchedulesPage() {
         userConferenceId={null}
         matchups={[]}
         bracketSlots={[]}
+        seasonId={null}
+        playoffMatches={[]}
+        userTeamId={null}
       />
     );
   }
@@ -65,6 +70,7 @@ export default async function SchedulesPage() {
     { data: teamSeasons },
     { data: teams },
     { data: bracketSlots },
+    { data: rawPlayoffMatches },
   ] = await Promise.all([
     // Deep fetch: matches → match_games → match_game_pokemon → pokemon
     supabase
@@ -98,6 +104,13 @@ export default async function SchedulesPage() {
       .eq("season_id", activeSeason.id)
       .order("round")
       .order("position"),
+
+    // Playoff match results (binary winner + replay links, no per-game
+    // stats) — deliberately separate from the regular-season matches above.
+    supabase
+      .from("playoff_matches")
+      .select("round, match_index, winner_team_id, playoff_match_replays(url, position)")
+      .eq("season_id", activeSeason.id),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -230,6 +243,15 @@ export default async function SchedulesPage() {
     };
   });
 
+  const playoffMatchEntries: PlayoffMatchResult[] = ((rawPlayoffMatches ?? []) as any[]).map((m) => ({
+    round: m.round as number,
+    matchIndex: m.match_index as number,
+    winnerTeamId: m.winner_team_id as number,
+    replayUrls: (m.playoff_match_replays ?? [])
+      .sort((a: any, b: any) => a.position - b.position)
+      .map((r: any) => r.url as string),
+  }));
+
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   return (
@@ -238,6 +260,9 @@ export default async function SchedulesPage() {
       userConferenceId={userConferenceId}
       matchups={matchups}
       bracketSlots={bracketSlotEntries}
+      seasonId={activeSeason.id}
+      playoffMatches={playoffMatchEntries}
+      userTeamId={userTeamId}
     />
   );
 }

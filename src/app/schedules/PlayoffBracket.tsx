@@ -1,24 +1,12 @@
-import type { BracketSlot } from "./types";
+"use client";
 
-// Labels per bracket shape, keyed by "<round-1 slot count>-<total rounds>" —
-// the only two numbers needed to disambiguate every size the admin editor
-// supports, including the 12-team bracket sharing round 1's slot count (8)
-// with the 8-team bracket but needing one more round for its bye structure.
-// Mirrors the same table in the admin bracket editor.
-const ROUND_LABELS: Record<string, string[]> = {
-  "2-1": ["Final"],
-  "4-2": ["Semifinals", "Final"],
-  "8-3": ["Quarterfinals", "Semifinals", "Final"],
-  "8-4": ["First Round", "Quarterfinals", "Semifinals", "Final"],
-  "16-4": ["Round of 16", "Quarterfinals", "Semifinals", "Final"],
-};
+import { useState } from "react";
+import { classifyTransition, roundLabel } from "@/lib/playoffBracket";
+import PlayoffResultModal from "./PlayoffResultModal";
+import PlayoffReplaysModal from "./PlayoffReplaysModal";
+import type { BracketSlot, PlayoffMatchResult } from "./types";
 
-function roundLabel(firstRoundSlotCount: number, totalRounds: number, roundIdx: number): string {
-  const key = `${firstRoundSlotCount}-${totalRounds}`;
-  return ROUND_LABELS[key]?.[roundIdx] ?? `Round ${roundIdx + 1}`;
-}
-
-function SlotLogo({ team }: { team: BracketSlot["team"] }) {
+function SlotLogo({ team, dimmed }: { team: BracketSlot["team"]; dimmed: boolean }) {
   if (!team) {
     return (
       <div className="w-12 h-12 rounded-lg bg-white/5 shrink-0 flex items-center justify-center text-xs text-gray-600 font-bold">
@@ -29,23 +17,49 @@ function SlotLogo({ team }: { team: BracketSlot["team"] }) {
   return team.logo_url ? (
     // The team's own submitted logo — never a placeholder/sprite.
     // eslint-disable-next-line @next/next/no-img-element
-    <img src={team.logo_url} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0" />
+    <img
+      src={team.logo_url}
+      alt=""
+      className={`w-12 h-12 rounded-lg object-cover shrink-0 ${dimmed ? "grayscale opacity-40" : ""}`}
+    />
   ) : (
-    <div className="w-12 h-12 rounded-lg bg-indigo-600/40 shrink-0 flex items-center justify-center text-base font-bold text-indigo-300">
+    <div
+      className={`w-12 h-12 rounded-lg shrink-0 flex items-center justify-center text-base font-bold ${
+        dimmed ? "bg-white/5 text-gray-600" : "bg-indigo-600/40 text-indigo-300"
+      }`}
+    >
       {team.team_name[0]?.toUpperCase()}
     </div>
   );
 }
 
-function SlotCard({ team }: { team: BracketSlot["team"] }) {
+function SlotCard({
+  team,
+  isWinner,
+  isLoser,
+}: {
+  team: BracketSlot["team"];
+  isWinner: boolean;
+  isLoser: boolean;
+}) {
   return (
     <div
       className={`flex items-center gap-3 rounded-xl px-4 py-3 min-w-[240px] ${
-        team ? "bg-white/[0.06] border border-white/10" : "bg-white/[0.02] border border-white/5"
+        isLoser
+          ? "bg-white/[0.01] border border-white/5 opacity-50"
+          : isWinner
+          ? "bg-emerald-500/[0.08] border border-emerald-500/30"
+          : team
+          ? "bg-white/[0.06] border border-white/10"
+          : "bg-white/[0.02] border border-white/5"
       }`}
     >
-      <SlotLogo team={team} />
-      <span className={`text-sm font-semibold truncate ${team ? "text-gray-200" : "text-gray-600 italic"}`}>
+      <SlotLogo team={team} dimmed={isLoser} />
+      <span
+        className={`text-sm font-semibold truncate ${
+          isLoser ? "text-gray-500" : isWinner ? "text-emerald-300" : team ? "text-gray-200" : "text-gray-600 italic"
+        }`}
+      >
         {team?.team_name ?? "TBD"}
       </span>
     </div>
@@ -56,15 +70,81 @@ function SlotCard({ team }: { team: BracketSlot["team"] }) {
 // every column lines up the same whether or not this round reaches the
 // next one. Within that space, a short local elbow (right-10 w-6, the last
 // 24px) always joins THIS pair's own two slots into one point at their
-// shared vertical center — that part needs no cross-matchup math.
-function MatchupPair({ slots, hasNext }: { slots: BracketSlot[]; hasNext: boolean }) {
+// shared vertical center — that part needs no cross-matchup math. The
+// submit/replays buttons are absolutely positioned below the pair (not in
+// normal flow) so they never affect this box's height, which the
+// connector math above and in PlayoffBracket below both depend on staying
+// uniform across every matchup in a round regardless of button presence.
+function MatchupPair({
+  slots,
+  hasNext,
+  seasonId,
+  round,
+  matchIndex,
+  result,
+  canSubmit,
+}: {
+  slots: BracketSlot[];
+  hasNext: boolean;
+  seasonId: number;
+  round: number;
+  matchIndex: number;
+  result: PlayoffMatchResult | undefined;
+  canSubmit: boolean;
+}) {
+  const [showSubmit, setShowSubmit] = useState(false);
+  const [showReplays, setShowReplays] = useState(false);
+
+  const teamA = slots[0].team;
+  const teamB = slots[1].team;
+  const winnerId = result?.winnerTeamId ?? null;
+  const hasReplays = (result?.replayUrls.length ?? 0) > 0;
+
   return (
     <div className={`relative flex flex-col gap-5 ${hasNext ? "pr-16" : ""}`}>
       {slots.map((slot) => (
-        <SlotCard key={slot.position} team={slot.team} />
+        <SlotCard
+          key={slot.position}
+          team={slot.team}
+          isWinner={winnerId !== null && slot.team?.id === winnerId}
+          isLoser={winnerId !== null && slot.team != null && slot.team.id !== winnerId}
+        />
       ))}
+      {(canSubmit || hasReplays) && (
+        <div className="absolute left-0 top-full mt-2 flex gap-1.5 z-10">
+          {canSubmit && (
+            <button
+              onClick={() => setShowSubmit(true)}
+              className="text-[10px] font-semibold text-indigo-400 hover:text-indigo-300 bg-indigo-500/10 hover:bg-indigo-500/20 px-2 py-1 rounded-md transition-colors"
+            >
+              Submit Result
+            </button>
+          )}
+          {hasReplays && (
+            <button
+              onClick={() => setShowReplays(true)}
+              className="text-[10px] font-semibold text-gray-400 hover:text-gray-300 bg-white/5 hover:bg-white/10 px-2 py-1 rounded-md transition-colors"
+            >
+              View Replays
+            </button>
+          )}
+        </div>
+      )}
       {hasNext && (
         <div className="absolute right-10 top-1/4 bottom-1/4 w-6 border-t border-r border-b border-white/25 rounded-r pointer-events-none" />
+      )}
+      {showSubmit && teamA && teamB && (
+        <PlayoffResultModal
+          seasonId={seasonId}
+          round={round}
+          matchIndex={matchIndex}
+          teamA={teamA}
+          teamB={teamB}
+          onClose={() => setShowSubmit(false)}
+        />
+      )}
+      {showReplays && (
+        <PlayoffReplaysModal replayUrls={result?.replayUrls ?? []} onClose={() => setShowReplays(false)} />
       )}
     </div>
   );
@@ -120,7 +200,17 @@ function StraightConnector({ y }: { y: number }) {
   );
 }
 
-export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
+export default function PlayoffBracket({
+  slots,
+  seasonId,
+  matches,
+  userTeamId,
+}: {
+  slots: BracketSlot[];
+  seasonId: number;
+  matches: PlayoffMatchResult[];
+  userTeamId: number | null;
+}) {
   if (slots.length === 0) return null;
 
   const roundsMap = new Map<number, BracketSlot[]>();
@@ -156,14 +246,8 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
             matchups.push(roundSlots.slice(i, i + 2));
           }
           const hasNext = idx < totalRounds - 1;
-          const nextCount = hasNext ? roundSlotCounts[idx + 1] : 0;
-          const transition: "halve" | "same" | "none" = !hasNext
-            ? "none"
-            : nextCount === roundSlotCounts[idx] / 2
-            ? "halve"
-            : nextCount === roundSlotCounts[idx]
-            ? "same"
-            : "none";
+          const nextCount = hasNext ? roundSlotCounts[idx + 1] / 2 : 0;
+          const transition = hasNext ? classifyTransition(matchups.length, nextCount) : "none";
 
           return (
             <div key={round} className="flex flex-col shrink-0">
@@ -183,7 +267,22 @@ export default function PlayoffBracket({ slots }: { slots: BracketSlot[] }) {
               </div>
               <div className="relative flex flex-col justify-around" style={{ height: columnHeight }}>
                 {matchups.map((pair, i) => (
-                  <MatchupPair key={i} slots={pair} hasNext={hasNext} />
+                  <MatchupPair
+                    key={i}
+                    slots={pair}
+                    hasNext={hasNext}
+                    seasonId={seasonId}
+                    round={round}
+                    matchIndex={i}
+                    result={matches.find((m) => m.round === round && m.matchIndex === i)}
+                    canSubmit={
+                      !matches.some((m) => m.round === round && m.matchIndex === i) &&
+                      pair[0].team != null &&
+                      pair[1].team != null &&
+                      userTeamId != null &&
+                      (userTeamId === pair[0].team.id || userTeamId === pair[1].team.id)
+                    }
+                  />
                 ))}
                 {transition === "halve" &&
                   Array.from({ length: matchups.length / 2 }, (_, j) => (

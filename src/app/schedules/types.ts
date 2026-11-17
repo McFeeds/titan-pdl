@@ -37,6 +37,13 @@ export interface BracketSlot {
   team: BracketTeam | null;
 }
 
+export interface PlayoffMatchResult {
+  round: number;
+  matchIndex: number;
+  winnerTeamId: number;
+  replayUrls: string[];
+}
+
 export interface MatchupEntry {
   id: number;
   week_number: number;

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import PlayoffBracket from "./PlayoffBracket";
-import type { MatchupEntry, PokemonBasic, BracketSlot } from "./types";
+import type { MatchupEntry, PokemonBasic, BracketSlot, PlayoffMatchResult } from "./types";
 
 // --- Icons ---
 
@@ -237,11 +237,17 @@ export default function SchedulesView({
   userConferenceId,
   matchups,
   bracketSlots,
+  seasonId,
+  playoffMatches,
+  userTeamId,
 }: {
   conferences: { id: number; name: string }[];
   userConferenceId: number | null;
   matchups: MatchupEntry[];
   bracketSlots: BracketSlot[];
+  seasonId: number | null;
+  playoffMatches: PlayoffMatchResult[];
+  userTeamId: number | null;
 }) {
   type Tab = number | "playoffs";
   const hasBracket = bracketSlots.length > 0;
@@ -315,7 +321,14 @@ export default function SchedulesView({
         )}
 
         {onPlayoffs ? (
-          <PlayoffBracket slots={bracketSlots} />
+          seasonId != null && (
+            <PlayoffBracket
+              slots={bracketSlots}
+              seasonId={seasonId}
+              matches={playoffMatches}
+              userTeamId={userTeamId}
+            />
+          )
         ) : weeks.length === 0 ? (
           <p className="text-gray-600 text-sm italic mt-4">No matches scheduled yet.</p>
         ) : (

@@ -10,10 +10,10 @@ const nextConfig: NextConfig = {
   async redirects() {
     return [
       {
-        // League Showdown server (Google Cloud VM behind Caddy/HTTPS).
-        // Temporary redirect so browsers don't cache it.
+        // League Showdown client (our own copy, Discord login). Temporary redirect so
+        // browsers don't cache it.
         source: "/showdown",
-        destination: "https://showdown.titan-pdl.com",
+        destination: "https://play.titan-pdl.com",
         permanent: false,
       },
     ];

@@ -45,3 +45,6 @@ supabase/.temp
 
 # claude code local settings (machine-specific permissions)
 .claude/settings.local.json
+
+# editor workspace files
+*.code-workspace

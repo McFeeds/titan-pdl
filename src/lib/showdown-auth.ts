@@ -103,10 +103,15 @@ function signingKey(): string {
   return key.replace(/\\n/g, "\n");
 }
 
-/** challstr from the client is "<keyid>|<challenge>"; only the challenge is signed. */
+/**
+ * challstr from the client is "<keyid>|<challenge>". The challenge is everything after the key
+ * ID and can itself contain "|" (e.g. "4|19d7...|647445mqf..."); the server compares the whole
+ * thing, so sign all of it.
+ */
 export function makeAssertion(challstr: string, name: string): string | null {
-  const challenge = challstr.split("|").pop() || "";
-  if (!/^[0-9a-f]{16,512}$/i.test(challenge)) return null;
+  const sep = challstr.indexOf("|");
+  const challenge = sep >= 0 ? challstr.slice(sep + 1) : "";
+  if (!/^[0-9a-z|]{16,1024}$/i.test(challenge)) return null;
   const userid = toShowdownId(name);
   if (!userid) return null;
   const data = [challenge, userid, USER_TYPE, Math.floor(Date.now() / 1000), SHOWDOWN_HOST].join(",");

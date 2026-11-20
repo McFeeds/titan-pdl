@@ -121,6 +121,9 @@ const good = cookieFor({ uid: "00000000-0000-0000-0000-000000000001", name: NAME
   check("getassertion for someone else's name -> refused", g.body.startsWith(";;"), g.body.slice(0, 70));
   const own = await action({ act: "getassertion", userid: "titantestuser", challstr: "4|" + "ab".repeat(64) }, good);
   check("getassertion for own name -> assertion", /^[0-9a-f]+,titantestuser,4,\d+,showdown\.titan-pdl\.com;[0-9a-f]+$/.test(own.body), own.body.slice(0, 70));
+  // The live server's challenge can contain "|" ("4|<hex>|<more>"): everything after the key ID is signed.
+  const multi = await action({ act: "getassertion", userid: "titantestuser", challstr: "4|" + "ab".repeat(32) + "|647445mqf9449345" }, good);
+  check("multi-part challenge is signed whole", multi.body.startsWith("ab".repeat(32) + "|647445mqf9449345,titantestuser,"), multi.body.slice(0, 90));
 }
 
 // 6. logout clears the cookie; password login is refused

@@ -21,6 +21,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/`);
   }
 
+  // Showdown login (play.titan-pdl.com) continues at its own route after Discord sign-in.
+  const next = searchParams.get("next");
+  if (next?.startsWith("/api/showdown/")) {
+    return NextResponse.redirect(`${origin}${next}`);
+  }
+
   console.log("[auth/callback] user_metadata:", JSON.stringify(user.user_metadata));
 
   // Discord returns the username in full_name (e.g. "mcfeeds")

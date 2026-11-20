@@ -60,6 +60,8 @@ function connect() {
 }
 
 const NAME = "TitanTest.User";
+// Like the real browser client, which appends its own "|<fingerprint>" section when calling action.php.
+const browserChallstr = c => `${c.challstr}|647445mqf9449345mqf9622645`;
 const good = cookieFor({ uid: "00000000-0000-0000-0000-000000000001", name: NAME, iat: Math.floor(Date.now() / 1000) });
 
 // 1. no session
@@ -75,7 +77,7 @@ const good = cookieFor({ uid: "00000000-0000-0000-0000-000000000001", name: NAME
 // 2. valid session: upkeep gives an assertion the real server accepts
 {
   const c = await connect();
-  const r = await action({ act: "upkeep", challstr: c.challstr }, good);
+  const r = await action({ act: "upkeep", challstr: browserChallstr(c) }, good);
   const data = parseJSON(r.body);
   check("upkeep with session -> loggedin + username", data.loggedin === true && data.username === NAME, r.body.slice(0, 80));
   c.send(`|/trn ${NAME},0,${data.assertion}`);
@@ -98,7 +100,7 @@ const good = cookieFor({ uid: "00000000-0000-0000-0000-000000000001", name: NAME
 // 4. tampering
 {
   const c = await connect();
-  const r = parseJSON((await action({ act: "upkeep", challstr: c.challstr }, good)).body);
+  const r = parseJSON((await action({ act: "upkeep", challstr: browserChallstr(c) }, good)).body);
   const forged = r.assertion.replace(",titantestuser,", ",mcfeeds,");
   c.send(`|/trn mcfeeds,0,${forged}`);
   const taken = await c.waitFor(/^\|nametaken\|/);
@@ -121,9 +123,9 @@ const good = cookieFor({ uid: "00000000-0000-0000-0000-000000000001", name: NAME
   check("getassertion for someone else's name -> refused", g.body.startsWith(";;"), g.body.slice(0, 70));
   const own = await action({ act: "getassertion", userid: "titantestuser", challstr: "4|" + "ab".repeat(64) }, good);
   check("getassertion for own name -> assertion", /^[0-9a-f]+,titantestuser,4,\d+,showdown\.titan-pdl\.com;[0-9a-f]+$/.test(own.body), own.body.slice(0, 70));
-  // The live server's challenge can contain "|" ("4|<hex>|<more>"): everything after the key ID is signed.
+  // The browser appends "|<fingerprint>" to the challstr; only the server's hex challenge is signed.
   const multi = await action({ act: "getassertion", userid: "titantestuser", challstr: "4|" + "ab".repeat(32) + "|647445mqf9449345" }, good);
-  check("multi-part challenge is signed whole", multi.body.startsWith("ab".repeat(32) + "|647445mqf9449345,titantestuser,"), multi.body.slice(0, 90));
+  check("client-appended section is not signed (only the server hex challenge)", multi.body.startsWith("ab".repeat(32) + ",titantestuser,"), multi.body.slice(0, 90));
 }
 
 // 6. logout clears the cookie; password login is refused

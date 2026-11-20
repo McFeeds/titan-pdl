@@ -104,14 +104,13 @@ function signingKey(): string {
 }
 
 /**
- * challstr from the client is "<keyid>|<challenge>". The challenge is everything after the key
- * ID and can itself contain "|" (e.g. "4|19d7...|647445mqf..."); the server compares the whole
- * thing, so sign all of it.
+ * challstr from the client is "<keyid>|<challenge>[|<extra>]". The server sends "<keyid>|<hex>";
+ * the browser client appends its own extra section (a fingerprint meant for PS Main's login
+ * server) when calling action.php. The server checks only the hex challenge, so sign exactly that.
  */
 export function makeAssertion(challstr: string, name: string): string | null {
-  const sep = challstr.indexOf("|");
-  const challenge = sep >= 0 ? challstr.slice(sep + 1) : "";
-  if (!/^[0-9a-z|]{16,1024}$/i.test(challenge)) return null;
+  const challenge = challstr.split("|")[1] || "";
+  if (!/^[0-9a-f]{16,512}$/i.test(challenge)) return null;
   const userid = toShowdownId(name);
   if (!userid) return null;
   const data = [challenge, userid, USER_TYPE, Math.floor(Date.now() / 1000), SHOWDOWN_HOST].join(",");
